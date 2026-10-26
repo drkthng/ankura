@@ -34,7 +34,9 @@ plus a definition field. Other users' note types will differ, so a fixed layout 
 5. **Fields copy the user's own notes.** The user picks a note type and deck once in Settings.
    To fill a draft, Ankura reads the three newest notes of that type from Anki and gives them to
    the AI as examples, together with the facts: the word, its reading, the sentence, the
-   sentence's reading from the tokenizer, and the dictionary meanings. The AI answers with one
+   sentence's reading from the tokenizer, and every dictionary entry with its senses (up to 4
+   entries, 8 senses each). The AI picks the meaning the word has in this sentence; the first
+   sense is often the wrong one (気になる: "to weigh on one's mind" vs "to be interested in"). The AI answers with one
    value per field, keeping the examples' HTML (bold, line breaks). Fields that hold media
    (`[sound:…]`, `<img>`) stay empty. The user can edit every field before adding.
 6. **Adding** uses AnkiConnect `canAddNotesWithErrorDetail` then `addNote`, tag `ankura`.

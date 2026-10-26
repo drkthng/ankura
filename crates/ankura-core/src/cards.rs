@@ -21,6 +21,9 @@ pub const CARD_TAG: &str = "ankura";
 const SAMPLE_NOTES: usize = 3;
 const SENTENCE_ATTEMPTS: usize = 3;
 const KNOWN_SAMPLE: usize = 400;
+/// Dictionary entries and senses per entry given to the model when filling a card.
+const MAX_ENTRIES: usize = 4;
+const MAX_SENSES: usize = 8;
 
 /// Where new cards go, chosen once in Settings.
 #[derive(Debug, Clone)]
@@ -129,8 +132,10 @@ pub fn new_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, key: &Wor
 const FILL_SYSTEM: &str = "You fill in a new Anki note for a Japanese learner. Copy the style of the example notes \
 exactly: which information goes into which field, the HTML formatting (for example <b> or <i> around the word, <br> \
 line breaks), the language of each field and the amount of detail. Build the note from the facts given; take \
-readings and meanings from them rather than guessing. If the examples put a sentence's reading in a field, use the \
-sentence reading from the facts and fix it only where it's clearly wrong. Leave fields that hold audio or images \
+readings and meanings from them rather than guessing. Words have several meanings, often spread over several \
+dictionary entries: decide which one the word has in this sentence, and put that meaning on the card (shorten or \
+rephrase it in the examples' style), not the first listed or the whole entry. If the examples put a sentence's \
+reading in a field, use the sentence reading from the facts and fix it only where it's clearly wrong. Leave fields that hold audio or images \
 ([sound:...] or <img ...>) empty, and leave a field empty when the examples leave it empty.";
 
 /// Audio and images can't be made up; drop them if the model copies the pattern anyway.
@@ -165,11 +170,14 @@ fn facts(store: &Store, tok: &dyn Tokenizer, d: &CardDraft) -> Result<String> {
     if entries.is_empty() {
         entries = dict::lookup(store, &d.key.lemma, &d.key.reading)?;
     }
-    let meanings: Vec<String> = entries.iter().take(2).flat_map(|e| e.senses.iter().take(5).cloned()).collect();
-    if !meanings.is_empty() {
-        f.push_str("Dictionary meanings:\n");
-        for (i, m) in meanings.iter().enumerate() {
-            f.push_str(&format!("{}. {m}\n", i + 1));
+    // Every entry and sense, so the model can pick the one the sentence uses (the first one often isn't).
+    if !entries.is_empty() {
+        f.push_str("Dictionary entries (pick the meaning that fits the sentence):\n");
+        for e in entries.iter().take(MAX_ENTRIES) {
+            f.push_str(&format!("{} 【{}】\n", e.expression, e.reading));
+            for (i, m) in e.senses.iter().take(MAX_SENSES).enumerate() {
+                f.push_str(&format!("  {}. {m}\n", i + 1));
+            }
         }
     }
     Ok(f)
@@ -413,6 +421,32 @@ mod tests {
         assert_eq!(log[0]["deckName"], "Japanisch");
         assert_eq!(log[0]["tags"][0], CARD_TAG);
         assert_eq!(log[0]["fields"]["Reading"], "かさ<br>かさをわすれた。");
+    }
+
+    #[test]
+    fn the_model_sees_every_meaning_and_picks_by_context() {
+        let Some(t) = sudachi() else { return };
+        let mut s = Store::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let zip = dir.path().join("d.zip");
+        crate::dict::write_zip(&zip, &[("term_bank_1.json", json!([
+            ["気になる", "きになる", "exp", "", 100, ["to weigh on one's mind", "to be curious about"], 1, ""],
+            ["気になる", "きになる", "exp", "", 50, ["to be interested in"], 2, ""]
+        ]))]);
+        crate::dict::import_yomitan_zip(&mut s, &zip).unwrap();
+        let d = s
+            .add_card_draft(&NewCardDraft {
+                key: WordKey { lang: "ja".into(), lemma: "気になる".into(), reading: "きになる".into() },
+                display: "気になる".into(),
+                sentence: "世界の歴史が、すごく気になります。".into(),
+                sentence_source: "text".into(),
+                text_id: None,
+            })
+            .unwrap();
+        let f = facts(&s, t, &d).unwrap();
+        assert!(f.contains("pick the meaning that fits the sentence"), "{f}");
+        assert!(f.contains("2. to be curious about") && f.contains("1. to be interested in"), "{f}");
+        assert!(FILL_SYSTEM.contains("decide which one the word has in this sentence"));
     }
 
     #[test]

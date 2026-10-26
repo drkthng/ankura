@@ -34,7 +34,7 @@ def card_fields(prompt, props):
     fact = lambda name: (re.search(rf"^{name}: (.+)$", prompt, re.M) or [None, ""])[1]
     word, sentence = fact("Word"), fact("Sentence")
     written = fact("The word as written in the sentence") or word
-    meaning = (re.search(r"^1\. (.+)$", prompt, re.M) or [None, ""])[1]
+    meaning = (re.search(r"^\s*1\. (.+)$", prompt, re.M) or [None, ""])[1]
     reading = fact("Reading of the word") + "<br>" + fact(re.escape("Sentence reading (from a tokenizer)"))
     out = {}
     for i, f in enumerate(props):

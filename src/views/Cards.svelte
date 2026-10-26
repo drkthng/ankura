@@ -183,6 +183,8 @@
         {#if !d.fields && !busy[d.id]}
           <button onclick={() => fill(d)} disabled={!targetSet}>Fill in with AI</button>
           <button class="ghost" onclick={() => byHand(d)} disabled={!targetSet}>Fill in by hand</button>
+        {:else if d.fields}
+          <button class="ghost" disabled={!!busy[d.id] || !targetSet} onclick={() => fill(d)} title="Ask the AI to fill in this card again">Fill in again</button>
         {/if}
         <button class="ghost" disabled={!!busy[d.id]} onclick={() => newSentence(d)}>New sentence</button>
         <button class="ghost danger" disabled={!!busy[d.id]} onclick={() => discard(d)}>Discard</button>
