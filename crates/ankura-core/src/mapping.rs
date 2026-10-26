@@ -28,6 +28,10 @@ pub enum FieldOutcome {
 pub struct FieldKeys {
     pub outcome: FieldOutcome,
     pub keys: Vec<WordKey>,
+    /// How each key is written on the card (降りる), in the same order as `keys`; the key's lemma
+    /// is the normalized spelling (下りる) used for matching.
+    #[serde(default)]
+    pub displays: Vec<String>,
 }
 
 /// Word keys for one note: the target field, plus an optional reading field.
@@ -60,7 +64,8 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
                     }
                     _ => t.lemma_reading.clone(),
                 };
-                keys.push(WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading });
+                let display = if t.surface == cand.text { cand.text.clone() } else { t.dictionary_form.clone() };
+                keys.push((WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading }, display));
                 if outcome == FieldOutcome::Empty {
                     outcome = FieldOutcome::Word;
                 }
@@ -70,18 +75,24 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
             many if hint.as_ref().is_some_and(|h| many.iter().filter(|t| t.lemma_reading == *h || t.reading == *h).count() == 1) => {
                 let h = hint.as_ref().unwrap();
                 let t = many.iter().find(|t| t.lemma_reading == *h || t.reading == *h).unwrap();
-                keys.push(WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() });
+                keys.push((
+                    WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() },
+                    t.dictionary_form.clone(),
+                ));
                 if outcome == FieldOutcome::Empty {
                     outcome = FieldOutcome::Word;
                 }
             }
             many => {
                 let reading = hint.unwrap_or_else(|| many.iter().map(|t| t.lemma_reading.as_str()).collect());
-                keys.push(WordKey { lang: tok.lang().into(), lemma: cand.text.clone(), reading });
+                keys.push((WordKey { lang: tok.lang().into(), lemma: cand.text.clone(), reading }, cand.text.clone()));
                 // The reader doesn't match phrases yet (ROADMAP), so the phrase's words count too:
                 // a card for 脱水症状 or 途方に暮れる also tells us about 脱水, 症状, 途方, 暮れる.
                 for t in many {
-                    keys.push(WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() });
+                    keys.push((
+                        WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() },
+                        t.dictionary_form.clone(),
+                    ));
                 }
                 if outcome == FieldOutcome::Empty {
                     outcome = FieldOutcome::Phrase;
@@ -90,8 +101,9 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
         }
     }
     let mut seen = HashSet::new();
-    keys.retain(|k| seen.insert(k.clone()));
-    Ok(FieldKeys { outcome, keys })
+    keys.retain(|(k, _)| seen.insert(k.clone()));
+    let (keys, displays) = keys.into_iter().unzip();
+    Ok(FieldKeys { outcome, keys, displays })
 }
 
 /// Which notes count: those of the user's chosen part of the collection, and only cards they
@@ -349,8 +361,9 @@ pub fn sync_anki(
     let mut report = SyncReport::default();
     let mut cards: Vec<(i64, CardFacts)> = Vec::new();
     let mut card_keys: Vec<(i64, WordKey)> = Vec::new();
+    let mut displays: HashMap<WordKey, String> = HashMap::new();
     if mappings.is_empty() {
-        store.replace_anki_snapshot(&cards, &card_keys, settings)?;
+        store.replace_anki_snapshot(&cards, &card_keys, &displays, settings)?;
         return Ok(report);
     }
 
@@ -440,8 +453,9 @@ pub fn sync_anki(
                         retrievability,
                     },
                 ));
-                for k in &fk.keys {
+                for (k, d) in fk.keys.iter().zip(&fk.displays) {
                     card_keys.push((card_id, k.clone()));
+                    displays.entry(k.clone()).or_insert_with(|| d.clone());
                 }
             }
         }
@@ -452,7 +466,7 @@ pub fn sync_anki(
         report.note_types.push(per_type);
     }
     report.cards = cards.len();
-    store.replace_anki_snapshot(&cards, &card_keys, settings)?;
+    store.replace_anki_snapshot(&cards, &card_keys, &displays, settings)?;
     Ok(report)
 }
 
@@ -472,7 +486,13 @@ mod tests {
     fn field_keys() {
         let Some(t) = sudachi() else { return };
         let k = keys_for_field(t, "<b>食べる</b>", None).unwrap();
-        assert_eq!(k, FieldKeys { outcome: FieldOutcome::Word, keys: vec![key("食べる", "たべる")] });
+        assert_eq!(
+            k,
+            FieldKeys { outcome: FieldOutcome::Word, keys: vec![key("食べる", "たべる")], displays: vec!["食べる".into()] }
+        );
+        // The card's spelling is kept for display, the normalized one for matching.
+        let k = keys_for_field(t, "降りる", None).unwrap();
+        assert_eq!((k.keys[0].lemma.as_str(), k.displays[0].as_str()), ("下りる", "降りる"));
         // Variant spellings meet at the normalized lemma.
         assert_eq!(keys_for_field(t, "わかる", None).unwrap().keys, vec![key("分かる", "わかる")]);
         // A reading field picks the homograph reading.

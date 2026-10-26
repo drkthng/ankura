@@ -5,8 +5,9 @@
   import Reader from "./views/Reader.svelte";
   import AnkiSetup from "./views/AnkiSetup.svelte";
   import Settings from "./views/Settings.svelte";
+  import Write from "./views/Write.svelte";
 
-  type View = { name: "library" } | { name: "reader"; id: string } | { name: "anki" } | { name: "settings" };
+  type View = { name: "library" } | { name: "reader"; id: string } | { name: "write" } | { name: "anki" } | { name: "settings" };
 
   let view = $state<View>({ name: "library" });
   let status = $state<Status | null>(null);
@@ -37,6 +38,7 @@
     <button class:active={view.name === "library" || view.name === "reader"} onclick={() => (view = { name: "library" })}>
       Library
     </button>
+    <button class:active={view.name === "write"} onclick={() => (view = { name: "write" })}>Write for me</button>
     <button class:active={view.name === "anki"} onclick={() => (view = { name: "anki" })}>Anki</button>
     <button class:active={view.name === "settings"} onclick={() => (view = { name: "settings" })}>Settings</button>
     <div class="spacer"></div>
@@ -56,6 +58,8 @@
       <Library {status} onopen={(id) => (view = { name: "reader", id })} ongo={(name) => (view = { name })} />
     {:else if view.name === "reader"}
       <Reader id={view.id} onback={() => (view = { name: "library" })} />
+    {:else if view.name === "write"}
+      <Write onopen={(id) => (view = { name: "reader", id })} ongo={(name) => (view = { name })} />
     {:else if view.name === "anki"}
       <AnkiSetup {status} onchange={refresh} />
     {:else if view.name === "settings"}

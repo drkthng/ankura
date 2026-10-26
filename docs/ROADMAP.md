@@ -36,15 +36,17 @@ Known gaps after M1, to pick up next:
 - [ ] The JMdict download (GitHub release) hasn't been run from the build environment, which
       can't reach GitHub release downloads; importing a Yomitan zip is tested.
 - [ ] Phrase cards (several words in one field) are stored but not yet matched in the reader.
-- [ ] Basic function words (こと, とき, いつも) count as unknown until marked once.
+- [x] Basic function words (する, こと, とき, この…) count as known by default (ADR 0010).
 - [ ] Incremental Anki sync (`cardsModTime`) instead of a full re-read.
 
 ## M2: Generated texts
 
-- [ ] LLM providers: Anthropic and OpenRouter (ADR 0006), key in the OS keychain.
-- [ ] Generate a text from target words and a level, with the deterministic coverage check and
-      retries (architecture-options §6).
-- [ ] Example sentences for target words.
+- [x] LLM providers: Anthropic and OpenRouter (ADR 0006, ADR 0010), key in the OS keychain.
+- [x] Generate a text from target words, topic, length and style, with the deterministic coverage
+      check and retries (architecture-options §6). Target suggestions: looked-up, fading, learning
+      and new words.
+- [x] Example sentences for target words.
+- [x] Show words in the spelling the user knows (card or text), not the normalized key.
 - [ ] "Simplify this sentence".
 
 ## M3: Personal and fun

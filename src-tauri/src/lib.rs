@@ -1,19 +1,22 @@
 //! Tauri shell: app state and the commands the UI calls. Logic lives in `ankura-core`.
 
 mod downloads;
+mod secrets;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
+use ankura_core::generate::{self, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
+use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
 use ankura_core::mapping::{self, MappingPreview, Suggestion, SyncReport};
 use ankura_core::reader::{self, ReaderDoc};
-use ankura_core::store::{KnownWord, NewEvent, NoteTypeMapping, Store, TextMeta, WordStats};
+use ankura_core::store::{KnownWord, NewEvent, NoteTypeMapping, Store, StudyWord, TextMeta, WordStats};
 use ankura_core::tokenize::SudachiTokenizer;
 use ankura_core::WordKey;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 pub struct AppState {
@@ -43,6 +46,19 @@ impl AppState {
 
     fn setting(&self, key: &str) -> Option<String> {
         self.store().setting(key).ok().flatten()
+    }
+
+    fn llm_config(&self) -> LlmConfig {
+        let d = LlmConfig::default();
+        let provider = match self.setting("ai_provider").as_deref() {
+            Some("open_router") => Provider::OpenRouter,
+            _ => Provider::Anthropic,
+        };
+        let model = self.setting("ai_model").filter(|m| !m.trim().is_empty()).unwrap_or_else(|| match provider {
+            Provider::Anthropic => d.model.clone(),
+            Provider::OpenRouter => String::new(),
+        });
+        LlmConfig { provider, model, effort: self.setting("ai_effort").unwrap_or(d.effort) }
     }
 
     fn anki(&self) -> AnkiConnect {
@@ -122,7 +138,8 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
 
 #[tauri::command]
 async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: [&str; 5] = ["anki_url", "anki_query", "known_days", "fading_below", "count_suspended"];
+    const ALLOWED: [&str; 8] =
+        ["anki_url", "anki_query", "known_days", "fading_below", "count_suspended", "ai_provider", "ai_model", "ai_effort"];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
@@ -202,6 +219,8 @@ async fn delete_text(app: AppHandle, id: String) -> CmdResult<()> {
 struct OpenedText {
     meta: TextMeta,
     doc: ReaderDoc,
+    /// Generation details for generated texts (targets, example sentences).
+    extra: Option<serde_json::Value>,
 }
 
 #[tauri::command]
@@ -211,7 +230,7 @@ async fn open_text(app: AppHandle, id: String) -> CmdResult<OpenedText> {
         let store = s.store();
         let text = store.open_text(&id).map_err(err)?.ok_or("This text no longer exists.")?;
         let doc = reader::analyze(&store, tok.as_ref(), &text.body).map_err(err)?;
-        Ok(OpenedText { meta: text.meta, doc })
+        Ok(OpenedText { meta: text.meta, doc, extra: text.extra })
     })
     .await
 }
@@ -336,6 +355,66 @@ async fn anki_sync(app: AppHandle) -> CmdResult<SyncReport> {
     .await
 }
 
+// --- AI-written texts ---
+
+#[derive(Serialize)]
+struct AiSettings {
+    config: LlmConfig,
+    has_key: bool,
+}
+
+#[tauri::command]
+async fn ai_settings(app: AppHandle) -> CmdResult<AiSettings> {
+    blocking(app, |s| {
+        let config = s.llm_config();
+        let has_key = secrets::api_key(config.provider)?.is_some();
+        Ok(AiSettings { config, has_key })
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ProviderArg {
+    Anthropic,
+    OpenRouter,
+}
+
+#[tauri::command]
+async fn set_api_key(app: AppHandle, provider: ProviderArg, key: String) -> CmdResult<()> {
+    let provider = match provider {
+        ProviderArg::Anthropic => Provider::Anthropic,
+        ProviderArg::OpenRouter => Provider::OpenRouter,
+    };
+    blocking(app, move |_| secrets::set_api_key(provider, key.trim())).await
+}
+
+#[tauri::command]
+async fn study_words(app: AppHandle) -> CmdResult<Vec<StudyWord>> {
+    blocking(app, |s| s.store().study_words(40).map_err(err)).await
+}
+
+#[tauri::command]
+async fn generate_text(app: AppHandle, request: GenerateRequest) -> CmdResult<GenerateResult> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let config = s.llm_config();
+        if config.model.trim().is_empty() {
+            return Err("Choose a model for this provider in Settings.".into());
+        }
+        let key = secrets::api_key(config.provider)?.ok_or("Add an API key in Settings first.")?;
+        let mut llm = HttpLlm::new(config, key);
+        if let Ok(url) = std::env::var("ANKURA_LLM_URL") {
+            llm = llm.with_url(&url); // development and tests: a stand-in provider
+        }
+        // Its own connection, so the app's shared one isn't locked while the model writes
+        // (WAL mode lets both work at once).
+        let store = Store::open(&s.data_dir.join("ankura.db")).map_err(err)?;
+        generate::generate_text(&store, tok.as_ref(), &llm, &request).map_err(err)
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -377,6 +456,10 @@ pub fn run() {
             save_mapping,
             delete_mapping,
             anki_sync,
+            ai_settings,
+            set_api_key,
+            study_words,
+            generate_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ankura");

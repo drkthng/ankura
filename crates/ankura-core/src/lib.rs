@@ -4,8 +4,10 @@
 pub mod anki;
 pub mod dict;
 pub mod furigana;
+pub mod generate;
 pub mod kana;
 pub mod knowledge;
+pub mod llm;
 pub mod mapping;
 pub mod normalize;
 pub mod reader;
@@ -31,6 +33,8 @@ pub enum Error {
     Anki(String),
     #[error("dictionary: {0}")]
     Dictionary(String),
+    #[error("AI: {0}")]
+    Llm(String),
     #[error("database: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("io: {0}")]

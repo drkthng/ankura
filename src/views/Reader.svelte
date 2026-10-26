@@ -7,6 +7,7 @@
     type NewEvent,
     type ReaderDoc,
     type ReaderToken,
+    type TextExtra,
     type TextMeta,
     type WordState,
   } from "../lib/api";
@@ -35,6 +36,7 @@
   });
 
   let meta = $state<TextMeta | null>(null);
+  let extra = $state<TextExtra | null>(null);
   let doc = $state<ReaderDoc | null>(null);
   let error = $state("");
   let selected = $state<{ token: ReaderToken; rect: DOMRect } | null>(null);
@@ -44,6 +46,7 @@
       const r = await api.openText(id);
       meta = r.meta;
       doc = r.doc;
+      extra = r.extra;
     } catch (e) {
       error = String(e);
     }
@@ -71,7 +74,7 @@
             setTimeout(() => {
               exposed.add(i);
               for (const t of doc?.paragraphs[i] ?? []) {
-                if (t.key && t.kind === "word") pending.push({ kind: "exposure", key: t.key, text_id: id });
+                if (t.key && t.kind === "word") pending.push({ kind: "exposure", key: t.key, text_id: id, display: t.dictionary_form });
               }
             }, 3000),
           );
@@ -97,7 +100,7 @@
   function open(token: ReaderToken, ev: MouseEvent) {
     if (!token.key) return;
     selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect() };
-    pending.push({ kind: "lookup", key: token.key, text_id: id });
+    pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
   }
 
   function coverageOf(d: ReaderDoc): Coverage {
@@ -132,7 +135,7 @@
 
   async function dontKnow() {
     if (!selected?.token.key) return;
-    pending.push({ kind: "dont_know", key: selected.token.key, text_id: id });
+    pending.push({ kind: "dont_know", key: selected.token.key, text_id: id, display: selected.token.dictionary_form });
     const wasMarked = selected.token.state === "marked_known";
     if (wasMarked) await mark(null);
     selected = null;
@@ -165,7 +168,14 @@
   {#if error}<p class="error pad">{error}</p>{/if}
 
   {#if doc}
-    <div class="summary"><CoverageBar coverage={doc.coverage} /></div>
+    <div class="summary">
+      <CoverageBar coverage={doc.coverage} />
+      {#if extra}
+        <p class="muted written">
+          Written for you around {extra.targets.join("、")}{extra.topic ? ` · ${extra.topic}` : ""}
+        </p>
+      {/if}
+    </div>
     <article class="text" class:hl={highlight} class:vertical>
       {#each doc.paragraphs as para, i}
         <p use:observe data-p={i}>
@@ -191,6 +201,20 @@
         </p>
       {/each}
     </article>
+    {#if extra?.examples?.length}
+      <section class="examples">
+        <h2>Example sentences</h2>
+        <ul>
+          {#each extra.examples as ex}
+            <li>
+              <span class="ex-word">{ex.word}</span>
+              <span class="ex-sentence">{ex.sentence}</span>
+              <span class="muted ex-tr">{ex.translation}</span>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
   {:else if !error}
     <p class="muted pad">Reading the text…</p>
   {/if}
@@ -253,6 +277,43 @@
   }
   .pad {
     padding: 2rem;
+  }
+  .written {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+  }
+  .examples {
+    max-width: 44em;
+    width: 100%;
+    margin: -4rem auto 4rem;
+    padding: 0 2rem;
+  }
+  .examples h2 {
+    font-size: 1rem;
+    color: var(--muted);
+  }
+  .examples ul {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: 0.7rem;
+  }
+  .examples li {
+    display: grid;
+    grid-template-columns: 6rem 1fr;
+    gap: 0.1rem 1rem;
+  }
+  .ex-word {
+    font-family: var(--font-read);
+    font-weight: 600;
+    grid-row: span 2;
+  }
+  .ex-sentence {
+    font-family: var(--font-read);
+    font-size: 1.1rem;
+  }
+  .ex-tr {
+    font-size: 0.88rem;
   }
   .text {
     max-width: 44em;

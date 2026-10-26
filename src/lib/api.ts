@@ -23,7 +23,7 @@ export interface ReaderToken {
   kind: TokenKind;
   key: WordKey | null;
   state: WordState;
-  source: "mark" | "anki" | "parts" | "none";
+  source: "mark" | "anki" | "basic" | "parts" | "none";
   has_kanji: boolean;
 }
 
@@ -140,10 +140,63 @@ export interface SyncReport {
   note_types: { model_name: string; notes: number; words: number; phrases: number; empty_fields: number }[];
 }
 
+export type Provider = "anthropic" | "open_router";
+
+export interface LlmConfig {
+  provider: Provider;
+  model: string;
+  effort: string;
+}
+
+export interface AiSettings {
+  config: LlmConfig;
+  has_key: boolean;
+}
+
+export interface StudyWord {
+  key: WordKey;
+  /** How to show the word (the card's or the text's spelling). */
+  display: string;
+  reason: "fading" | "learning" | "new" | "looked_up";
+  lookups: number;
+}
+
+export interface GenerateRequest {
+  targets: string[];
+  topic: string;
+  length: number;
+  polite: boolean;
+}
+
+export interface Example {
+  word: string;
+  sentence: string;
+  translation: string;
+}
+
+export interface GenerateResult {
+  text: TextMeta;
+  coverage: number;
+  attempts: number;
+  missing_targets: string[];
+  unknown_words: string[];
+  examples: Example[];
+}
+
+export interface TextExtra {
+  targets: string[];
+  topic: string;
+  coverage: number;
+  attempts: number;
+  examples: Example[];
+}
+
 export interface NewEvent {
   kind: "exposure" | "lookup" | "dont_know";
   key: WordKey;
   text_id: string | null;
+  /** The word as written in the text. */
+  display?: string;
 }
 
 export const api = {
@@ -158,7 +211,7 @@ export const api = {
   addText: (title: string, body: string) => invoke<TextMeta>("add_text", { title, body }),
   renameText: (id: string, title: string) => invoke<void>("rename_text", { id, title }),
   deleteText: (id: string) => invoke<void>("delete_text", { id }),
-  openText: (id: string) => invoke<{ meta: TextMeta; doc: ReaderDoc }>("open_text", { id }),
+  openText: (id: string) => invoke<{ meta: TextMeta; doc: ReaderDoc; extra: TextExtra | null }>("open_text", { id }),
   wordInfo: (key: WordKey, surface: string) => invoke<WordInfo>("word_info", { key, surface }),
   setWordMark: (key: WordKey, state: WordState | null) => invoke<void>("set_word_mark", { key, state }),
   recordEvents: (events: NewEvent[]) => invoke<void>("record_events", { events }),
@@ -171,6 +224,11 @@ export const api = {
   saveMapping: (mapping: NoteTypeMapping) => invoke<void>("save_mapping", { mapping }),
   deleteMapping: (modelId: number) => invoke<void>("delete_mapping", { modelId }),
   ankiSync: () => invoke<SyncReport>("anki_sync"),
+
+  aiSettings: () => invoke<AiSettings>("ai_settings"),
+  setApiKey: (provider: Provider, key: string) => invoke<void>("set_api_key", { provider, key }),
+  studyWords: () => invoke<StudyWord[]>("study_words"),
+  generateText: (request: GenerateRequest) => invoke<GenerateResult>("generate_text", { request }),
 };
 
 export const keyId = (k: WordKey) => `${k.lang}\u0001${k.lemma}\u0001${k.reading}`;

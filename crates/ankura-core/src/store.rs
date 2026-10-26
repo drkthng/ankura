@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -24,7 +24,8 @@ CREATE TABLE texts (
     body TEXT NOT NULL,
     source TEXT NOT NULL,          -- 'paste' | 'generated'
     created_at INTEGER NOT NULL,   -- ms since epoch
-    opened_at INTEGER
+    opened_at INTEGER,
+    extra TEXT                     -- JSON: generation details (targets, examples, coverage)
 );
 
 -- Which field of an Anki note type holds the word (architecture-options §3).
@@ -66,6 +67,7 @@ CREATE TABLE knowledge (
     state TEXT NOT NULL,
     strength REAL NOT NULL,
     cards INTEGER NOT NULL,
+    display TEXT,                  -- spelling on the card, for showing to the user
     PRIMARY KEY (lang, lemma, reading)
 );
 
@@ -88,7 +90,8 @@ CREATE TABLE events (
     lang TEXT NOT NULL,
     lemma TEXT NOT NULL,
     reading TEXT NOT NULL,
-    text_id TEXT
+    text_id TEXT,
+    display TEXT                   -- the word as it appeared in the text
 );
 CREATE INDEX events_key ON events (lang, lemma, reading, kind);
 
@@ -131,6 +134,20 @@ pub struct TextMeta {
 pub struct Text {
     pub meta: TextMeta,
     pub body: String,
+    /// Generation details for generated texts (JSON), `None` for pasted ones.
+    pub extra: Option<serde_json::Value>,
+}
+
+/// A word worth practising, for the "write a text" screen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudyWord {
+    pub key: WordKey,
+    /// How to show the word: the card's spelling or the text's.
+    pub display: String,
+    /// "fading" | "learning" | "new" | "looked_up"
+    pub reason: String,
+    /// Lookups ("I don't know this") in the last 60 days.
+    pub lookups: i64,
 }
 
 /// Where in the target field the word is.
@@ -175,6 +192,9 @@ pub struct NewEvent {
     pub kind: String,
     pub key: WordKey,
     pub text_id: Option<String>,
+    /// The word as it appeared in the text (ぬいぐるみ, where the key says 縫い包み).
+    #[serde(default)]
+    pub display: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -199,6 +219,8 @@ impl Store {
 
     fn init(conn: Connection) -> Result<Store> {
         conn.pragma_update(None, "journal_mode", "wal")?;
+        // A second connection (text generation) may be writing; wait instead of failing.
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
         conn.pragma_update(None, "foreign_keys", "on")?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version == 0 {
@@ -206,6 +228,12 @@ impl Store {
         }
         if version == 1 {
             conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
+        }
+        if (1..=2).contains(&version) {
+            conn.execute_batch("ALTER TABLE texts ADD COLUMN extra TEXT;")?;
+        }
+        if (1..=3).contains(&version) {
+            conn.execute_batch("ALTER TABLE knowledge ADD COLUMN display TEXT; ALTER TABLE events ADD COLUMN display TEXT;")?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -248,11 +276,22 @@ impl Store {
     // --- texts ---
 
     pub fn add_text(&self, lang: &str, title: &str, body: &str, source: &str) -> Result<TextMeta> {
+        self.add_text_with_extra(lang, title, body, source, None)
+    }
+
+    pub fn add_text_with_extra(
+        &self,
+        lang: &str,
+        title: &str,
+        body: &str,
+        source: &str,
+        extra: Option<&serde_json::Value>,
+    ) -> Result<TextMeta> {
         let id = Uuid::new_v4().to_string();
         let now = now_ms();
         self.conn.execute(
-            "INSERT INTO texts (id, lang, title, body, source, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, lang, title, body, source, now],
+            "INSERT INTO texts (id, lang, title, body, source, created_at, extra) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, lang, title, body, source, now, extra.map(|e| e.to_string())],
         )?;
         Ok(TextMeta {
             id,
@@ -289,7 +328,7 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, lang, title, source, created_at, opened_at, length(body), body FROM texts WHERE id = ?1",
+                "SELECT id, lang, title, source, created_at, opened_at, length(body), body, extra FROM texts WHERE id = ?1",
                 [id],
                 |r| {
                     Ok(Text {
@@ -303,6 +342,7 @@ impl Store {
                             chars: r.get(6)?,
                         },
                         body: r.get(7)?,
+                        extra: r.get::<_, Option<String>>(8)?.and_then(|e| serde_json::from_str(&e).ok()),
                     })
                 },
             )
@@ -361,6 +401,7 @@ impl Store {
         &mut self,
         cards: &[(i64, CardFacts)],
         card_keys: &[(i64, WordKey)],
+        displays: &HashMap<WordKey, String>,
         settings: &KnowledgeSettings,
     ) -> Result<usize> {
         let tx = self.conn.transaction()?;
@@ -393,7 +434,7 @@ impl Store {
         tx.execute("DELETE FROM knowledge", [])?;
         {
             let mut ins = tx.prepare(
-                "INSERT INTO knowledge (lang, lemma, reading, state, strength, cards) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO knowledge (lang, lemma, reading, state, strength, cards, display) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             )?;
             for (k, cs) in &by_key {
                 let (state, strength) = word_state(cs.iter().copied(), settings);
@@ -401,7 +442,7 @@ impl Store {
                 if state == WordState::Unknown {
                     continue;
                 }
-                ins.execute(params![k.lang, k.lemma, k.reading, state.as_str(), strength, cs.len() as i64])?;
+                ins.execute(params![k.lang, k.lemma, k.reading, state.as_str(), strength, cs.len() as i64, displays.get(*k)])?;
             }
         }
         tx.commit()?;
@@ -459,6 +500,68 @@ impl Store {
         Ok(())
     }
 
+    /// Words to practise: fading and learning Anki words, and words looked up recently.
+    pub fn study_words(&self, limit: usize) -> Result<Vec<StudyWord>> {
+        let since = now_ms() - 60 * 24 * 3600 * 1000;
+        let mut out: Vec<StudyWord> = Vec::new();
+        {
+            let mut st = self.conn.prepare(
+                "SELECT e.lang, e.lemma, e.reading, count(*) AS n, coalesce(max(e.display), e.lemma) FROM events e
+                 WHERE e.kind = 'dont_know' AND e.ts >= ?1
+                   AND NOT EXISTS (SELECT 1 FROM word_overrides o WHERE o.lang = e.lang AND o.lemma = e.lemma
+                                   AND o.reading = e.reading AND o.state IN ('marked_known', 'ignored'))
+                 GROUP BY e.lang, e.lemma, e.reading ORDER BY n DESC, max(e.ts) DESC LIMIT ?2",
+            )?;
+            let rows = st.query_map(params![since, limit as i64], |r| {
+                Ok(StudyWord {
+                    key: WordKey { lang: r.get(0)?, lemma: r.get(1)?, reading: r.get(2)? },
+                    display: r.get(4)?,
+                    reason: "looked_up".into(),
+                    lookups: r.get(3)?,
+                })
+            })?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        for (state, order) in [("fading", "strength DESC"), ("learning", "strength DESC"), ("new", "lemma")] {
+            let mut st = self.conn.prepare(&format!(
+                "SELECT lang, lemma, reading, coalesce(display, lemma) FROM knowledge k WHERE state = ?1
+                   AND NOT EXISTS (SELECT 1 FROM word_overrides o WHERE o.lang = k.lang AND o.lemma = k.lemma
+                                   AND o.reading = k.reading)
+                 ORDER BY {order} LIMIT ?2"
+            ))?;
+            let rows = st.query_map(params![state, limit as i64], |r| {
+                Ok(StudyWord {
+                    key: WordKey { lang: r.get(0)?, lemma: r.get(1)?, reading: r.get(2)? },
+                    display: r.get(3)?,
+                    reason: state.into(),
+                    lookups: 0,
+                })
+            })?;
+            for row in rows {
+                let w = row?;
+                if !out.iter().any(|o| o.key == w.key) {
+                    out.push(w);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Lemmas the user knows, most stable first: Anki's known words, then words marked known.
+    pub fn known_lemmas(&self, lang: &str, limit: usize) -> Result<Vec<String>> {
+        let mut st = self.conn.prepare(
+            "SELECT lemma FROM (
+                 SELECT coalesce(display, lemma) AS lemma, strength FROM knowledge WHERE lang = ?1 AND state IN ('known', 'fading')
+                 UNION ALL
+                 SELECT lemma, 0 FROM word_overrides WHERE lang = ?1 AND state = 'marked_known'
+             ) GROUP BY lemma ORDER BY max(strength) DESC LIMIT ?2",
+        )?;
+        let rows = st.query_map(params![lang, limit as i64], |r| r.get(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn anki_summary(&self) -> Result<HashMap<String, i64>> {
         let mut st = self.conn.prepare("SELECT state, count(*) FROM knowledge GROUP BY state")?;
         let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
@@ -471,7 +574,7 @@ impl Store {
         let tx = self.conn.transaction()?;
         {
             let mut ins = tx.prepare(
-                "INSERT INTO events (id, device_id, ts, kind, lang, lemma, reading, text_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO events (id, device_id, ts, kind, lang, lemma, reading, text_id, display) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )?;
             let now = now_ms();
             for e in events {
@@ -483,7 +586,8 @@ impl Store {
                     e.key.lang,
                     e.key.lemma,
                     e.key.reading,
-                    e.text_id
+                    e.text_id,
+                    e.display
                 ])?;
             }
         }
@@ -556,7 +660,7 @@ mod tests {
         };
         let cards = vec![(10, card(1, 40)), (10, card(2, 3))];
         let keys = vec![(1, key("分かる", "わかる")), (2, key("人気", "ひとけ"))];
-        s.replace_anki_snapshot(&cards, &keys, &KnowledgeSettings::default()).unwrap();
+        s.replace_anki_snapshot(&cards, &keys, &HashMap::new(), &KnowledgeSettings::default()).unwrap();
         assert_eq!(s.knowledge(&key("分かる", "わかる")).unwrap().unwrap().state, WordState::Known);
         // Lemma-only fallback when the reading differs.
         assert_eq!(s.knowledge(&key("人気", "にんき")).unwrap().unwrap().state, WordState::Learning);
@@ -572,7 +676,7 @@ mod tests {
         s.set_word_override(&k, None).unwrap();
         assert_eq!(s.word_override(&k).unwrap(), None);
 
-        let ev = |kind: &str| NewEvent { kind: kind.into(), key: k.clone(), text_id: None };
+        let ev = |kind: &str| NewEvent { kind: kind.into(), key: k.clone(), text_id: None, display: Some("ねこ".into()) };
         s.record_events(&[ev("exposure"), ev("exposure"), ev("dont_know")]).unwrap();
         let st = s.word_stats(&k).unwrap();
         assert_eq!((st.exposures, st.lookups), (2, 1));
@@ -584,7 +688,12 @@ mod tests {
         let path = dir.path().join("old.db");
         {
             let conn = Connection::open(&path).unwrap();
-            conn.execute_batch(&SCHEMA.replace(",\n    target_mode TEXT NOT NULL DEFAULT 'field'", "")).unwrap();
+            let v1 = SCHEMA
+                .replace(",\n    target_mode TEXT NOT NULL DEFAULT 'field'", "")
+                .replace(",\n    extra TEXT                     -- JSON: generation details (targets, examples, coverage)", "")
+                .replace(",\n    display TEXT,                  -- spelling on the card, for showing to the user", ",")
+                .replace(",\n    display TEXT                   -- the word as it appeared in the text", "");
+            conn.execute_batch(&v1).unwrap();
             conn.pragma_update(None, "user_version", 1).unwrap();
             conn.execute(
                 "INSERT INTO note_type_mappings (model_id, model_name, target_field, reading_field, updated_at) VALUES (1, 'Old', 'Word', NULL, 0)",

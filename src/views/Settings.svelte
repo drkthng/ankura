@@ -2,7 +2,8 @@
   import { onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type Status } from "../lib/api";
+  import { onMount } from "svelte";
+  import { api, type AiSettings, type Provider, type Status } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
@@ -57,6 +58,48 @@
   }
 
   const mb = (n: number) => (n / 1048576).toFixed(1);
+
+  // --- AI provider ---
+  let ai = $state<AiSettings | null>(null);
+  let provider = $state<Provider>("anthropic");
+  let model = $state("");
+  let effort = $state("medium");
+  let key = $state("");
+  let aiMessage = $state("");
+  async function loadAi() {
+    ai = await api.aiSettings();
+    provider = ai.config.provider;
+    model = ai.config.model;
+    effort = ai.config.effort;
+  }
+  onMount(() => {
+    loadAi().catch((e) => (error = String(e)));
+  });
+  async function switchProvider() {
+    await api.setSetting("ai_provider", provider);
+    await api.setSetting("ai_model", "");
+    await loadAi();
+  }
+  async function saveAi() {
+    aiMessage = "";
+    try {
+      await api.setSetting("ai_provider", provider);
+      await api.setSetting("ai_model", model.trim());
+      await api.setSetting("ai_effort", effort);
+      if (key.trim()) {
+        await api.setApiKey(provider, key.trim());
+        key = "";
+      }
+      await loadAi();
+      aiMessage = "Saved.";
+    } catch (e) {
+      aiMessage = String(e);
+    }
+  }
+  async function removeKey() {
+    await api.setApiKey(provider, "");
+    await loadAi();
+  }
 </script>
 
 <div class="page">
@@ -105,6 +148,53 @@
   </section>
 
   <section class="card">
+    <h2>AI for “Write for me”</h2>
+    <p class="muted">
+      Texts are written by an AI model you pay for with your own API key. A short text costs a few cents. The key is
+      stored in your system's keychain, not in Ankura's files.
+    </p>
+    <div class="grid">
+      <label for="prov">Provider</label>
+      <select id="prov" bind:value={provider} onchange={switchProvider}>
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="open_router">OpenRouter (many models)</option>
+      </select>
+      <label for="key">API key {#if ai?.has_key}<span class="ok">✓ saved</span>{/if}</label>
+      <span class="row">
+        <input
+          id="key"
+          type="password"
+          autocomplete="off"
+          placeholder={ai?.has_key ? "•••••••• (enter a new key to replace)" : provider === "anthropic" ? "sk-ant-…" : "sk-or-…"}
+          bind:value={key}
+        />
+        {#if ai?.has_key}<button class="ghost danger" onclick={removeKey}>Remove</button>{/if}
+      </span>
+      <label for="model">Model</label>
+      <input
+        id="model"
+        bind:value={model}
+        placeholder={provider === "anthropic" ? "claude-opus-5-5" : "e.g. anthropic/… (see openrouter.ai/models)"}
+      />
+      {#if provider === "anthropic"}
+        <label for="effort">Effort <span class="muted">(more = better texts, slower, pricier)</span></label>
+        <select id="effort" bind:value={effort}>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      {/if}
+    </div>
+    <div class="row">
+      <button class="primary" onclick={saveAi}>Save</button>
+      {#if aiMessage}<span class="muted">{aiMessage}</span>{/if}
+      {#if provider === "anthropic"}
+        <span class="muted small">Get a key at console.anthropic.com → API keys.</span>
+      {/if}
+    </div>
+  </section>
+
+  <section class="card">
     <h2>When is a word “known”?</h2>
     <div class="grid">
       <label for="kd">Known at a stability (FSRS) or interval of at least</label>
@@ -144,6 +234,10 @@
   }
   .grid input[type="number"] {
     width: 6rem;
+  }
+  .grid input#key,
+  .grid input#model {
+    width: 22rem;
   }
   ul {
     margin: 0 0 0.8rem;

@@ -129,14 +129,24 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     data = tempfile.mkdtemp(prefix="ankura-e2e-")
-    env = dict(os.environ, DISPLAY=":99", XDG_DATA_HOME=data, ANKURA_SUDACHI_DIC=a.sudachi, LANG="ja_JP.UTF-8")
+    env = dict(
+        os.environ,
+        DISPLAY=":99",
+        XDG_DATA_HOME=data,
+        ANKURA_SUDACHI_DIC=a.sudachi,
+        LANG="ja_JP.UTF-8",
+        ANKURA_LLM_URL="http://127.0.0.1:8766",
+        ANKURA_API_KEY="test",
+    )
     procs = [
         subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1280x860x24"], stderr=subprocess.DEVNULL),
         subprocess.Popen([sys.executable, str(HERE / "fake_ankiconnect.py"), "8765"], stdout=subprocess.DEVNULL),
+        subprocess.Popen([sys.executable, str(HERE / "fake_llm.py"), "8766"], stdout=subprocess.DEVNULL),
     ]
     time.sleep(1)
     procs.append(subprocess.Popen(["tauri-driver", "--port", "4444"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     wait_port(8765)
+    wait_port(8766)
     wait_port(4444)
     d = None
     try:
@@ -208,11 +218,11 @@ def main():
 
         # Mark another word known and check the colour and the score change.
         before = d.text("//div[contains(@class,'headline')]/strong")
-        d.click("//span[contains(@class,'tok') and contains(@class,'st-unknown') and contains(., '私')]")
+        d.click("//span[contains(@class,'tok') and contains(@class,'st-unknown') and contains(., '毎朝')]")
         d.click("//div[@role='dialog']//button[normalize-space()='I know this']")
         time.sleep(0.5)
         after = d.text("//div[contains(@class,'headline')]/strong")
-        print("coverage before/after marking 私:", before, after)
+        print("coverage before/after marking 毎朝:", before, after)
         assert after != before
         d.shot(out / "06-after-mark.png")
 
@@ -233,6 +243,21 @@ def main():
         print("ぬいぐるみ stats:", stats["stats"])
         assert stats["stats"]["lookups"] >= 2, stats["stats"]  # lookup + dont_know
         assert stats["stats"]["exposures"] >= 1, stats["stats"]
+        # Write for me: pick the looked-up word, write, and read the result.
+        d.click("//nav//button[normalize-space()='Write for me']")
+        d.click("//button[contains(@class,'chip') and contains(., 'ぬいぐるみ')]")
+        d.type("//input[contains(@class,'typed')]", "傘")
+        d.click("//button[contains(@class,'chip') and normalize-space()='a train journey']")
+        d.shot(out / "09-write.png")
+        d.click("//button[normalize-space()='Write it']")
+        written = d.text("//p[contains(@class,'written')]", timeout=90)
+        print("generated:", written)
+        assert "ぬいぐるみ" in written and "傘" in written, written
+        examples = d.text("//section[contains(@class,'examples')]")
+        assert "We talked about" in examples, examples
+        time.sleep(0.5)
+        d.shot(out / "10-generated.png")
+        assert len(d.invoke("list_texts")) == 2
         print("OK")
     except Exception:
         if d:

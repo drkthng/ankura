@@ -58,7 +58,7 @@
       {#if key.reading && key.reading !== token.dictionary_form}<span class="reading">{key.reading}</span>{/if}
       {#if key.lemma !== token.dictionary_form}<span class="also">also written {key.lemma}</span>{/if}
     </div>
-    <span class="state st-{token.state}">{token.source === "parts" ? "Known parts" : stateLabel[token.state]}</span>
+    <span class="state st-{token.state}">{token.source === "parts" ? "Known parts" : token.source === "basic" ? "Basic word" : stateLabel[token.state]}</span>
   </header>
 
   {#if error}<p class="error">{error}</p>{/if}

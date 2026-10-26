@@ -136,7 +136,6 @@ pub(crate) mod fake {
     //! An in-process AnkiConnect stand-in for tests: a tiny HTTP server over a fixed collection.
 
     use std::collections::{BTreeMap, HashSet};
-    use std::io::Read;
     use std::thread;
 
     use serde_json::{Value, json};

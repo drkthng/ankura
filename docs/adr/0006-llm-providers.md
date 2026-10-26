@@ -1,6 +1,6 @@
 # 0006. LLM providers for v1: Anthropic and OpenRouter
 
-- Status: accepted
+- Status: accepted; default model superseded by ADR 0010 (`claude-opus-5-5`)
 - Date: 2026-10-26
 - Deciders: owner, via AskUserQuestion in the phase 1 session
 

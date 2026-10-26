@@ -62,6 +62,8 @@ Dictionaries for development: `ANKURA_SUDACHI_DIC` points the app and the tests 
 GitHub release downloads aren't reachable.
 
 Without Anki: `python3 tools/dev/fake_ankiconnect.py` serves a small sample collection on port 8765.
+Without an AI key: `python3 tools/dev/fake_llm.py` stands in for the Anthropic API on port 8766; start
+the app with `ANKURA_LLM_URL=http://127.0.0.1:8766 ANKURA_API_KEY=test`.
 
 End-to-end smoke test (Linux, needs `tauri-driver`, `webkit2gtk-driver` and Xvfb):
 
