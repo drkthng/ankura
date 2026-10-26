@@ -246,10 +246,33 @@ pub struct SyncReport {
     pub phrases: usize,
     pub empty_fields: usize,
     pub fsrs: bool,
+    /// Cards suspended in Anki (they don't count unless the setting says so).
+    pub suspended: usize,
+    /// Review cards overdue by 30 days or more.
+    pub overdue: usize,
+    pub note_types: Vec<NoteTypeReport>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NoteTypeReport {
+    pub model_name: String,
+    pub notes: usize,
+    pub words: usize,
+    pub phrases: usize,
+    pub empty_fields: usize,
 }
 
 const STABILITY_STEPS: [f64; 6] = [1.0, 7.0, 21.0, 60.0, 180.0, 365.0];
 const RETRIEVABILITY_STEPS: [f64; 4] = [0.5, 0.7, 0.8, 0.9];
+/// Days overdue, for estimating recall when FSRS is off.
+const OVERDUE_STEPS: [i64; 6] = [7, 30, 90, 180, 365, 730];
+
+/// Recall estimate for an SM-2 card: its interval taken as stability, on FSRS-4's forgetting
+/// curve R = 1 / (1 + t / 9S), where t is the time since the last review (interval + overdue).
+pub fn sm2_retrievability(interval: i64, overdue: i64) -> f64 {
+    let s = interval.max(1) as f64;
+    1.0 / (1.0 + (s + overdue as f64) / (9.0 * s))
+}
 
 /// Highest threshold whose search contains the card, per card.
 fn buckets(anki: &dyn AnkiSource, base: &str, prop: &str, steps: &[f64]) -> Result<HashMap<i64, f64>> {
@@ -293,9 +316,20 @@ pub fn sync_anki(
     } else {
         (HashMap::new(), HashMap::new())
     };
+    // Without FSRS, how far overdue each review card is (prop:due<=-N: overdue by N days or more).
+    let mut overdue: HashMap<i64, i64> = HashMap::new();
+    if !report.fsrs {
+        for t in OVERDUE_STEPS {
+            for id in anki.find_cards(&format!("{base} is:review prop:due<=-{t}"))? {
+                overdue.insert(id, t);
+            }
+        }
+    }
+    report.suspended = suspended.len();
     let in_scope: HashSet<i64> = anki.find_cards(&base)?.into_iter().collect();
 
     for m in &mappings {
+        let mut per_type = NoteTypeReport { model_name: m.model_name.clone(), ..Default::default() };
         let note_ids = anki.find_notes(&format!("mid:{}", m.model_id))?;
         let notes: Vec<NoteInfo> = anki.notes_info(&note_ids)?;
         let note_cards: Vec<i64> =
@@ -304,11 +338,11 @@ pub fn sync_anki(
         for n in &notes {
             let fk = keys_for_note(tok, m, &n.fields)?;
             match fk.outcome {
-                FieldOutcome::Word => report.words += 1,
-                FieldOutcome::Phrase => report.phrases += 1,
-                FieldOutcome::Empty => report.empty_fields += 1,
+                FieldOutcome::Word => per_type.words += 1,
+                FieldOutcome::Phrase => per_type.phrases += 1,
+                FieldOutcome::Empty => per_type.empty_fields += 1,
             }
-            report.notes += 1;
+            per_type.notes += 1;
             for &card_id in n.cards.iter().filter(|c| in_scope.contains(c)) {
                 let card_type = if new.contains(&card_id) {
                     0
@@ -325,6 +359,19 @@ pub fn sync_anki(
                     card_type
                 };
                 let interval = intervals.get(&card_id).copied().unwrap_or(0).max(0);
+                let late = overdue.get(&card_id).copied().unwrap_or(0);
+                if late >= 30 {
+                    report.overdue += 1;
+                }
+                let (stability, retrievability) = if card_type == 0 {
+                    (None, None)
+                } else if report.fsrs {
+                    (Some(stab.get(&card_id).copied().unwrap_or(0.0)), Some(retr.get(&card_id).copied().unwrap_or(0.0)))
+                } else if card_type == 2 {
+                    (None, Some(sm2_retrievability(interval, late)))
+                } else {
+                    (None, None)
+                };
                 cards.push((
                     m.model_id,
                     CardFacts {
@@ -334,8 +381,8 @@ pub fn sync_anki(
                         queue,
                         interval,
                         lapses: 0,
-                        stability: stab.get(&card_id).copied().or(report.fsrs.then_some(0.0)).filter(|_| card_type != 0),
-                        retrievability: retr.get(&card_id).copied().or(report.fsrs.then_some(0.0)).filter(|_| card_type != 0),
+                        stability,
+                        retrievability,
                     },
                 ));
                 for k in &fk.keys {
@@ -343,6 +390,11 @@ pub fn sync_anki(
                 }
             }
         }
+        report.notes += per_type.notes;
+        report.words += per_type.words;
+        report.phrases += per_type.phrases;
+        report.empty_fields += per_type.empty_fields;
+        report.note_types.push(per_type);
     }
     report.cards = cards.len();
     store.replace_anki_snapshot(&cards, &card_keys, settings)?;
@@ -375,6 +427,46 @@ mod tests {
         assert_eq!(keys_for_field(t, "分かる、解る", None).unwrap().keys, vec![key("分かる", "わかる")]);
         assert_eq!(keys_for_field(t, "気をつける", None).unwrap().outcome, FieldOutcome::Phrase);
         assert_eq!(keys_for_field(t, "[sound:a.mp3]", None).unwrap().outcome, FieldOutcome::Empty);
+    }
+
+    #[test]
+    fn sm2_recall_estimate() {
+        // On time: R = 0.9, as for FSRS at t = S.
+        assert!((sm2_retrievability(100, 0) - 0.9).abs() < 1e-9);
+        // A 100-day card 180 days late is below 0.8; a 300-day card 180 days late isn't.
+        assert!(sm2_retrievability(100, 180) < 0.8);
+        assert!(sm2_retrievability(300, 180) > 0.8);
+    }
+
+    #[test]
+    fn overdue_cards_fade_without_fsrs() {
+        let Some(t) = sudachi() else { return };
+        let card = |id, interval, overdue| FakeCard { id, interval, flags: &["review"], stability: None, retrievability: None, overdue };
+        let url = serve(vec![
+            FakeNote { id: 1, model: ("Vocab", 10), fields: vec![("Word", "猫")], cards: vec![card(11, 100, 0)] },
+            FakeNote { id: 2, model: ("Vocab", 10), fields: vec![("Word", "犬")], cards: vec![card(21, 100, 200)] },
+            FakeNote { id: 3, model: ("Vocab", 10), fields: vec![("Word", "鳥")], cards: vec![card(31, 400, 200)] },
+        ]);
+        let anki = AnkiConnect::new(&url);
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .save_mapping(&NoteTypeMapping {
+                model_id: 10,
+                model_name: "Vocab".into(),
+                target_field: "Word".into(),
+                reading_field: None,
+                target_mode: TargetMode::Field,
+            })
+            .unwrap();
+        let report = sync_anki(&anki, t, &mut store, &KnowledgeSettings::default(), "").unwrap();
+        assert!(!report.fsrs);
+        assert_eq!(report.overdue, 2);
+        assert_eq!(report.note_types.len(), 1);
+        assert_eq!(report.note_types[0].words, 3);
+        let state = |l: &str, r: &str| store.knowledge(&key(l, r)).unwrap().map(|k| k.state);
+        assert_eq!(state("猫", "ねこ"), Some(WordState::Known));
+        assert_eq!(state("犬", "いぬ"), Some(WordState::Fading));
+        assert_eq!(state("鳥", "とり"), Some(WordState::Known));
     }
 
     #[test]
@@ -415,6 +507,7 @@ mod tests {
             flags,
             stability: s,
             retrievability: r,
+            overdue: 0,
         };
         let url = serve(vec![
             FakeNote { id: 1, model: ("Vocab", 10), fields: vec![("Word", "猫"), ("Reading", "ねこ")],

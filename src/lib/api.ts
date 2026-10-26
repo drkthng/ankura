@@ -135,6 +135,9 @@ export interface SyncReport {
   phrases: number;
   empty_fields: number;
   fsrs: boolean;
+  suspended: number;
+  overdue: number;
+  note_types: { model_name: string; notes: number; words: number; phrases: number; empty_fields: number }[];
 }
 
 export interface NewEvent {

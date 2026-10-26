@@ -174,6 +174,9 @@ def main():
         d.find(nt + "//span[normalize-space()='mapped']")
         d.click("//button[normalize-space()='Sync now']")
         report = d.text("//p[contains(., 'Read ') and contains(., 'cards')]", timeout=60)
+        per_type = d.text("//table[contains(@class,'per-type')]")
+        print("per note type:", per_type.replace("\n", " | "))
+        assert "Satzkarten" in per_type, per_type
         print("sync:", report)
         assert "48 cards" in report and "FSRS is on" in report, report
         d.shot(out / "03-anki-synced.png")

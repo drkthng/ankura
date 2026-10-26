@@ -158,6 +158,9 @@ def match(node, note, card):
         ok = card["stability"] is not None and card["stability"] >= float(t[8:])
     elif t.startswith("prop:r>="):
         ok = card["recall"] is not None and card["recall"] >= float(t[8:])
+    elif t.startswith("prop:due<="):
+        ok = "review" in card["flags"] or not ({"new", "learn"} & card["flags"])
+        ok = ok and -card.get("overdue", 0) <= int(t[10:])
     elif t.startswith("deck:"):
         pat = t[5:].strip('"')
         ok = card["deck"].startswith(pat[:-1]) if pat.endswith("*") else card["deck"] == pat

@@ -147,6 +147,8 @@ pub(crate) mod fake {
         pub flags: &'static [&'static str],
         pub stability: Option<f64>,
         pub retrievability: Option<f64>,
+        /// Days overdue (review cards).
+        pub overdue: i64,
     }
 
     pub struct FakeNote {
@@ -177,6 +179,8 @@ pub(crate) mod fake {
                 ok &= card.stability.is_some_and(|s| s >= v.parse::<f64>().unwrap());
             } else if let Some(v) = w.strip_prefix("prop:r>=") {
                 ok &= card.retrievability.is_some_and(|r| r >= v.parse::<f64>().unwrap());
+            } else if let Some(v) = w.strip_prefix("prop:due<=") {
+                ok &= -card.overdue <= v.parse::<i64>().unwrap() && card.flags.contains(&"review");
             } else if w.starts_with("deck:") {
             } else {
                 panic!("fake AnkiConnect can't handle query word {w:?} in {query:?}");
@@ -262,7 +266,7 @@ mod tests {
             id: 100,
             model: ("Core", 7),
             fields: vec![("Vocab", "<b>猫</b>"), ("Reading", "ねこ")],
-            cards: vec![FakeCard { id: 1, interval: 30, flags: &["review"], stability: None, retrievability: None }],
+            cards: vec![FakeCard { id: 1, interval: 30, flags: &["review"], stability: None, retrievability: None, overdue: 0 }],
         }]);
         let a = AnkiConnect::new(&url);
         assert_eq!(a.version().unwrap(), 6);

@@ -290,10 +290,32 @@
       {#if syncError}<p class="error">{syncError}</p>{/if}
       {#if report}
         <p class="ok">
-          Read {report.cards.toLocaleString()} cards from {report.notes.toLocaleString()} notes:
-          {report.words.toLocaleString()} words, {report.phrases.toLocaleString()} phrases,
-          {report.empty_fields.toLocaleString()} empty fields.
-          {report.fsrs ? "FSRS is on, so stability and recall come from FSRS." : "FSRS is off, so intervals are used."}
+          Read {report.cards.toLocaleString()} cards from {report.notes.toLocaleString()} notes.
+          {report.fsrs
+            ? "FSRS is on, so Ankura uses Anki's own recall estimates."
+            : `FSRS is off, so Ankura estimates recall from each card's interval and how overdue it is (${report.overdue.toLocaleString()} cards are 30+ days overdue; those you've likely forgotten show as fading).`}
+          {#if report.suspended}
+            {report.suspended.toLocaleString()} {report.suspended === 1 ? "card is" : "cards are"} suspended and
+            {status?.settings.count_suspended ? "count" : "don't count (change this in Settings)"}.
+          {/if}
+        </p>
+        <table class="per-type">
+          <thead><tr><th>Note type</th><th>Notes</th><th>Words</th><th>Phrases</th><th>No word found</th></tr></thead>
+          <tbody>
+            {#each report.note_types as t}
+              <tr>
+                <td>{t.model_name}</td>
+                <td>{t.notes.toLocaleString()}</td>
+                <td>{t.words.toLocaleString()}</td>
+                <td>{t.phrases.toLocaleString()}</td>
+                <td class:warn={t.notes > 0 && t.empty_fields / t.notes > 0.2}>{t.empty_fields.toLocaleString()}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <p class="muted small">
+          “No word found” means the field was empty, or in a sentence field nothing was bold or italic. Preview on that
+          note type shows examples.
         </p>
       {/if}
       {#if status && Object.keys(status.knowledge).length}
@@ -413,5 +435,25 @@
   }
   .summary {
     margin-top: 0.6rem;
+  }
+  .per-type {
+    margin-top: 0.6rem;
+    font-size: 0.9rem;
+  }
+  .per-type th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 0.2rem 0.6rem 0.2rem 0;
+  }
+  .per-type td {
+    padding: 0.2rem 0.6rem 0.2rem 0;
+  }
+  .per-type td.warn {
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .small {
+    font-size: 0.82rem;
   }
 </style>
