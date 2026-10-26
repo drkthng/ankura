@@ -16,7 +16,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   https://github.com/drkthng/ankura/actions/runs/40380564839. Check, tests, Windows and macOS
   installers passed (Linux was still building at hand-off). Windows installer given to the owner:
   https://github.com/drkthng/ankura/actions/runs/40380564839/artifacts/12678018674
-- Tests: 42 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+- Tests (at the M1/M2 hand-off; now 52): 42 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
   (`tools/dev/e2e_smoke.py`). All passing at hand-off.
 
 ## 2. The owner and how they work
@@ -53,20 +53,21 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
 | `dict.rs` | Yomitan zip import (plain and structured-content glossaries), lookup by spelling or reading |
-| `reader.rs` | Text → paragraphs of tokens with furigana, state (mark > anki > basic word > parts), coverage |
+| `reader.rs` | Text → paragraphs of tokens with furigana, state (mark > anki > basic word > parts), coverage; `phrase` (a selection as one token: 気になります → 気になる) |
 | `llm.rs` | Anthropic Messages (raw HTTPS, `anthropic-version: 2026-10-21`, `output_config` format+effort, `fallbacks: "default"`) and OpenRouter |
 | `generate.rs` | `prepare` / `check_draft` / `feedback` / `save`, shared by the automatic loop (`generate_text`: retries, best attempt saved) and copy & paste (`chat_prompt`, `parse_answer` lenient, `submit_answer`) |
-| `anki.rs` | `AnkiSource` trait, AnkiConnect client, in-process fake for tests |
+| `anki.rs` | `AnkiSource` trait, AnkiConnect client with an action allow-list (add-only writes: `canAddNotesWithErrorDetail`, `addNote`), in-process fake for tests |
+| `cards.rs` | Card drafts (ADR 0012): `new_sentence` (i+1, checked, retried), `fill_fields` (AI copies the three newest notes of the chosen type), `drafts_for_text`, `add_to_anki` (tag `ankura`) |
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |
-| `src/views/*.svelte` | Library, Reader, Write ("Write for me"), AnkiSetup, Settings |
+| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), AnkiSetup, Settings |
 | `src/components/` | `WordPopover`, `CoverageBar` |
 | `tools/dev/` | `fake_ankiconnect.py` (incl. a "Satzkarten" note type like the owner's), `fake_llm.py`, `jamdict_to_yomitan.py`, `e2e_smoke.py` |
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0011 in `docs/adr/`. Most relevant now: 0011 (AI without API costs), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0012 in `docs/adr/`. Most relevant now: 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -77,6 +78,9 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
   `gh api repos/drkthng/ankura/actions/runs?head_sha=$(git rev-parse HEAD)`. Artifact link for the
   owner: `https://github.com/drkthng/ankura/actions/runs/<run_id>/artifacts/<artifact_id>` (ids
   from `gh api repos/drkthng/ankura/actions/runs/<run_id>/artifacts`).
+- **E2E flakiness:** WebKitWebDriver sometimes drops the session ("Remote end closed connection")
+  at a random step; kill leftovers (`pkill -x Xvfb ankura tauri-driver WebKitWebDriver` one by
+  one) and rerun. The fakes send `Connection: close` (ureq reused closed connections).
 - **Linux build prerequisites:**
   `apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev
   libayatana-appindicator3-dev librsvg2-dev fonts-noto-cjk webkit2gtk-driver xdotool imagemagick`,
@@ -100,7 +104,11 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 
 ## 5. Next steps, in order
 
-1. **First real run.** The owner's Max plan includes $200/month of API credits (ADR 0011,
+0. **Anki cards (ADR 0012) and phrase selection: built, tested with fakes only.** The owner's
+   first real use is the real test: check that the fields come out like their "Japanisch"
+   notes (bold word in "Original Sentence", reading field = word reading, `<br>`, sentence
+   reading), and that `addNote` goes into the right deck.
+1. **First real run.** Done: the API key works (2026-10-26). The owner's Max plan includes $200/month of API credits (ADR 0011,
    Update); they claimed them and have an Anthropic API key, which goes into Settings. Copy &
    paste through claude.ai is built as the fallback (setting `ai_mode`; `chat_prompt`,
    `chat_submit` in `generate.rs`). Claude Code CLI and free OpenRouter models are on hold. Help
@@ -115,8 +123,7 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方)
    and counter sound changes (三匹) are wrong in furigana; Sudachi splits some words oddly
    (一時的 → 一|時|的).
-5. **M3** (ROADMAP): interest profile, stats and "stealth leeches", add-to-Anki (add-only, ADR
-   0007), kanji popover (their unmapped Kanji note types could feed kanji knowledge), correctable
+5. **M3** (ROADMAP): interest profile, stats and "stealth leeches", kanji popover (their unmapped Kanji note types could feed kanji knowledge), correctable
    furigana.
 6. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,
    ADR 0004) and sync (ADR 0005); Italian/Spanish lemmatizer (ADR 0001); sudachi.rs needs a

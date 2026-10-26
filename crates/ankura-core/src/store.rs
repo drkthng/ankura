@@ -1,7 +1,7 @@
 //! Local SQLite storage. Every row Ankura creates carries a UUID or a device ID, and exposures and
 //! lookups are an append-only event log, so sync can be added later without a migration (ADR 0009).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -113,6 +113,24 @@ CREATE TABLE dict_terms (
 );
 CREATE INDEX dict_terms_expression ON dict_terms (expression);
 CREATE INDEX dict_terms_reading ON dict_terms (reading);
+"#;
+
+/// Anki cards being prepared (ADR 0012); added in version 5.
+const CARDS_SCHEMA: &str = r#"
+CREATE TABLE card_drafts (
+    id TEXT PRIMARY KEY,           -- UUID
+    lang TEXT NOT NULL,
+    lemma TEXT NOT NULL,
+    reading TEXT NOT NULL,
+    display TEXT NOT NULL,         -- the word as the user sees it
+    sentence TEXT NOT NULL,
+    sentence_source TEXT NOT NULL, -- 'text' (from what they read) | 'new' (written for the card)
+    text_id TEXT,
+    fields TEXT,                   -- JSON object field -> value; NULL until filled
+    status TEXT NOT NULL,          -- 'draft' | 'added'
+    note_id INTEGER,               -- the Anki note, once added
+    created_at INTEGER NOT NULL
+);
 "#;
 
 pub(crate) fn now_ms() -> i64 {
@@ -225,6 +243,7 @@ impl Store {
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version == 0 {
             conn.execute_batch(SCHEMA)?;
+            conn.execute_batch(CARDS_SCHEMA)?;
         }
         if version == 1 {
             conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
@@ -234,6 +253,9 @@ impl Store {
         }
         if (1..=3).contains(&version) {
             conn.execute_batch("ALTER TABLE knowledge ADD COLUMN display TEXT; ALTER TABLE events ADD COLUMN display TEXT;")?;
+        }
+        if (1..=4).contains(&version) {
+            conn.execute_batch(CARDS_SCHEMA)?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -613,6 +635,110 @@ impl Store {
         }
         Ok(out)
     }
+
+    // --- card drafts (ADR 0012) ---
+
+    pub fn add_card_draft(&self, d: &NewCardDraft) -> Result<CardDraft> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_ms();
+        self.conn.execute(
+            "INSERT INTO card_drafts (id, lang, lemma, reading, display, sentence, sentence_source, text_id, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'draft', ?9)",
+            params![id, d.key.lang, d.key.lemma, d.key.reading, d.display, d.sentence, d.sentence_source, d.text_id, now],
+        )?;
+        Ok(self.card_draft(&id)?.expect("just inserted"))
+    }
+
+    const DRAFT_COLUMNS: &str =
+        "id, lang, lemma, reading, display, sentence, sentence_source, text_id, fields, status, note_id, created_at";
+
+    fn draft_row(r: &rusqlite::Row) -> rusqlite::Result<CardDraft> {
+        let fields: Option<String> = r.get(8)?;
+        Ok(CardDraft {
+            id: r.get(0)?,
+            key: WordKey { lang: r.get(1)?, lemma: r.get(2)?, reading: r.get(3)? },
+            display: r.get(4)?,
+            sentence: r.get(5)?,
+            sentence_source: r.get(6)?,
+            text_id: r.get(7)?,
+            fields: fields.and_then(|f| serde_json::from_str(&f).ok()),
+            status: r.get(9)?,
+            note_id: r.get(10)?,
+            created_at: r.get(11)?,
+        })
+    }
+
+    pub fn card_draft(&self, id: &str) -> Result<Option<CardDraft>> {
+        Ok(self
+            .conn
+            .query_row(&format!("SELECT {} FROM card_drafts WHERE id = ?1", Self::DRAFT_COLUMNS), [id], Self::draft_row)
+            .optional()?)
+    }
+
+    /// Drafts first (oldest first), then the most recently added cards.
+    pub fn card_drafts(&self) -> Result<Vec<CardDraft>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {} FROM card_drafts WHERE status = 'draft' OR created_at >= ?1
+             ORDER BY status = 'added', CASE status WHEN 'draft' THEN created_at ELSE -created_at END",
+            Self::DRAFT_COLUMNS
+        ))?;
+        let since = now_ms() - 30 * 24 * 3600 * 1000;
+        let rows = st.query_map([since], Self::draft_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn set_card_sentence(&self, id: &str, sentence: &str, source: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE card_drafts SET sentence = ?2, sentence_source = ?3, fields = NULL WHERE id = ?1 AND status = 'draft'",
+            params![id, sentence, source],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_card_fields(&self, id: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE card_drafts SET fields = ?2 WHERE id = ?1 AND status = 'draft'",
+            params![id, serde_json::to_string(fields).expect("strings serialize")],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_card_added(&self, id: &str, note_id: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE card_drafts SET status = 'added', note_id = ?2 WHERE id = ?1", params![id, note_id])?;
+        Ok(())
+    }
+
+    pub fn delete_card_draft(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM card_drafts WHERE id = ?1 AND status = 'draft'", [id])?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewCardDraft {
+    pub key: WordKey,
+    pub display: String,
+    pub sentence: String,
+    /// "text": the sentence the word was read in. "new": written for the card.
+    pub sentence_source: String,
+    pub text_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardDraft {
+    pub id: String,
+    pub key: WordKey,
+    pub display: String,
+    pub sentence: String,
+    pub sentence_source: String,
+    pub text_id: Option<String>,
+    /// Anki field → value, once filled.
+    pub fields: Option<BTreeMap<String, String>>,
+    /// "draft" or "added".
+    pub status: String,
+    pub note_id: Option<i64>,
+    pub created_at: i64,
 }
 
 #[cfg(test)]
@@ -680,6 +806,35 @@ mod tests {
         s.record_events(&[ev("exposure"), ev("exposure"), ev("dont_know")]).unwrap();
         let st = s.word_stats(&k).unwrap();
         assert_eq!((st.exposures, st.lookups), (2, 1));
+    }
+
+    #[test]
+    fn card_drafts_roundtrip() {
+        let s = Store::open_in_memory().unwrap();
+        let key = WordKey { lang: "ja".into(), lemma: "傘".into(), reading: "かさ".into() };
+        let new = |sentence: &str| NewCardDraft {
+            key: key.clone(),
+            display: "傘".into(),
+            sentence: sentence.into(),
+            sentence_source: "text".into(),
+            text_id: None,
+        };
+        let a = s.add_card_draft(&new("傘を忘れた。")).unwrap();
+        let b = s.add_card_draft(&new("傘がない。")).unwrap();
+        assert!(a.fields.is_none() && a.status == "draft");
+        let fields = BTreeMap::from([("Front".to_string(), "<b>傘</b>を忘れた。".to_string())]);
+        s.set_card_fields(&a.id, &fields).unwrap();
+        assert_eq!(s.card_draft(&a.id).unwrap().unwrap().fields.unwrap(), fields);
+        // A new sentence clears the filled fields.
+        s.set_card_sentence(&a.id, "傘をさす。", "new").unwrap();
+        let a2 = s.card_draft(&a.id).unwrap().unwrap();
+        assert!(a2.fields.is_none() && a2.sentence_source == "new");
+        s.mark_card_added(&a.id, 42).unwrap();
+        s.delete_card_draft(&a.id).unwrap(); // added cards stay
+        s.delete_card_draft(&b.id).unwrap();
+        let all = s.card_drafts().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!((all[0].status.as_str(), all[0].note_id), ("added", Some(42)));
     }
 
     #[test]

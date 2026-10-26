@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { api, type AiMode, type AiSettings, type ChatOutcome, type GenerateRequest, type StudyWord } from "../lib/api";
 
-  let { onopen, ongo }: { onopen: (id: string) => void; ongo: (view: "settings") => void } = $props();
+  let { onopen, ongo }: { onopen: (id: string) => void; ongo: (view: "settings" | "cards") => void } = $props();
 
   let ai = $state<AiSettings | null>(null);
   let words = $state<StudyWord[]>([]);
@@ -101,6 +101,32 @@
     }
   }
 
+  // --- one card per word, each with a new sentence ---
+  let cardsBusy = $state(false);
+  let cardsDone = $state(0);
+  async function makeCards() {
+    addTyped();
+    if (!picked.length) return;
+    cardsBusy = true;
+    cardsDone = 0;
+    error = "";
+    const failed: string[] = [];
+    for (const w of picked) {
+      const known = words.find((x) => x.display === w);
+      try {
+        const key = known?.key ?? (await api.phraseInfo(w))?.key;
+        if (!key) throw new Error(`can't read ${w}`);
+        await api.cardCreate(key, w, null, null);
+      } catch (e) {
+        failed.push(`${w}: ${e}`);
+      }
+      cardsDone++;
+    }
+    cardsBusy = false;
+    if (failed.length) error = failed.join("\n");
+    else ongo("cards");
+  }
+
   async function write() {
     addTyped();
     if (!picked.length) return;
@@ -132,8 +158,9 @@
 <div class="page">
   <h1>Write a text for me</h1>
   <p class="muted lead">
-    Pick a few words to practise. Ankura asks the AI for a short text that uses them, written with words you already
-    know, checks that at least 95% of it is familiar, and asks for a rewrite if not.
+    Pick a few words to practise. Ankura asks the AI for a short reading text (a story, a diary entry…) that uses them,
+    written with words you already know, checks that at least 95% of it is familiar, and asks for a rewrite if not.
+    Want flashcards instead? “Make cards” gives each word its own new sentence, ready for Anki.
   </p>
 
   {#if ai}
@@ -219,6 +246,11 @@
     >
       {busy && ai?.mode === "api" ? "Writing…" : ai?.mode === "chat" ? (chat ? "Start over" : "Get the request") : "Write it"}
     </button>
+    {#if ai?.mode === "api" && !chat}
+      <button disabled={busy || cardsBusy || (!picked.length && !typed.trim()) || !ai.has_key} onclick={makeCards} title="One new sentence per word, in which only that word is new to you">
+        {cardsBusy ? `Writing sentences… (${cardsDone}/${picked.length})` : "Make cards"}
+      </button>
+    {/if}
     {#if busy && ai?.mode === "api"}
       <span class="muted">The AI is writing and Ankura is checking the result ({elapsed}s). This usually takes under a minute.</span>
     {/if}

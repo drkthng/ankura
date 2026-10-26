@@ -196,6 +196,28 @@ export interface ChatOutcome {
   saved: GenerateResult | null;
 }
 
+export interface CardDraft {
+  id: string;
+  key: WordKey;
+  display: string;
+  sentence: string;
+  sentence_source: "text" | "new";
+  text_id: string | null;
+  /** Anki field → value, once filled. */
+  fields: Record<string, string> | null;
+  status: "draft" | "added";
+  note_id: number | null;
+  created_at: number;
+}
+
+export interface CardOptions {
+  note_types: string[];
+  decks: string[];
+  note_type: string | null;
+  deck: string | null;
+  auto_add: boolean;
+}
+
 export interface TextExtra {
   targets: string[];
   topic: string;
@@ -246,6 +268,20 @@ export const api = {
   chatSubmit: (request: GenerateRequest, answer: string, attempts: number, keep: boolean) =>
     invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),
   openClaudeAi: () => invoke<void>("open_claude_ai"),
+
+  phraseInfo: (selection: string) => invoke<ReaderToken | null>("phrase_info", { selection }),
+  cardOptions: () => invoke<CardOptions>("card_options"),
+  cardFieldNames: () => invoke<string[]>("card_field_names"),
+  cardDrafts: () => invoke<CardDraft[]>("card_drafts"),
+  /** No sentence: the AI writes a new one in which only this word is unknown. */
+  cardCreate: (key: WordKey, display: string, sentence: string | null, textId: string | null) =>
+    invoke<CardDraft>("card_create", { key, display, sentence, textId }),
+  cardsForText: (textId: string) => invoke<CardDraft[]>("cards_for_text", { textId }),
+  cardFill: (id: string) => invoke<CardDraft>("card_fill", { id }),
+  cardNewSentence: (id: string) => invoke<CardDraft>("card_new_sentence", { id }),
+  cardSetFields: (id: string, fields: Record<string, string>) => invoke<void>("card_set_fields", { id, fields }),
+  cardDiscard: (id: string) => invoke<void>("card_discard", { id }),
+  cardAdd: (id: string) => invoke<CardDraft>("card_add", { id }),
 };
 
 export const keyId = (k: WordKey) => `${k.lang}\u0001${k.lemma}\u0001${k.reading}`;

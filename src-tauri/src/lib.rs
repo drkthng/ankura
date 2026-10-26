@@ -3,17 +3,21 @@
 mod downloads;
 mod secrets;
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use ankura_core::anki::{AnkiConnect, AnkiSource};
+use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
 use ankura_core::mapping::{self, MappingPreview, Suggestion, SyncReport};
 use ankura_core::reader::{self, ReaderDoc};
-use ankura_core::store::{KnownWord, NewEvent, NoteTypeMapping, Store, StudyWord, TextMeta, WordStats};
+use ankura_core::store::{
+    CardDraft, KnownWord, NewCardDraft, NewEvent, NoteTypeMapping, Store, StudyWord, TextMeta, WordStats,
+};
 use ankura_core::tokenize::SudachiTokenizer;
 use ankura_core::WordKey;
 use serde::{Deserialize, Serialize};
@@ -59,6 +63,33 @@ impl AppState {
             Provider::OpenRouter => String::new(),
         });
         LlmConfig { provider, model, effort: self.setting("ai_effort").unwrap_or(d.effort) }
+    }
+
+    /// The AI for automatic mode, or a message saying what's missing.
+    fn llm(&self) -> CmdResult<HttpLlm> {
+        let config = self.llm_config();
+        if config.model.trim().is_empty() {
+            return Err("Choose a model for this provider in Settings.".into());
+        }
+        let key = secrets::api_key(config.provider)?.ok_or("This needs an AI API key; add one in Settings.")?;
+        let mut llm = HttpLlm::new(config, key);
+        if let Ok(url) = std::env::var("ANKURA_LLM_URL") {
+            llm = llm.with_url(&url); // development and tests: a stand-in provider
+        }
+        Ok(llm)
+    }
+
+    /// Its own connection, so the app's shared one isn't locked while the AI writes (WAL mode lets
+    /// both work at once).
+    fn own_store(&self) -> CmdResult<Store> {
+        Store::open(&self.data_dir.join("ankura.db")).map_err(err)
+    }
+
+    fn card_target(&self) -> CmdResult<CardTarget> {
+        match (self.setting("card_note_type"), self.setting("card_deck")) {
+            (Some(note_type), Some(deck)) if !note_type.is_empty() && !deck.is_empty() => Ok(CardTarget { note_type, deck }),
+            _ => Err("Choose a note type and deck for new cards in Settings first.".into()),
+        }
     }
 
     fn anki(&self) -> AnkiConnect {
@@ -138,7 +169,7 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
 
 #[tauri::command]
 async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: [&str; 9] = [
+    const ALLOWED: [&str; 12] = [
         "anki_url",
         "anki_query",
         "known_days",
@@ -148,6 +179,9 @@ async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()
         "ai_model",
         "ai_effort",
         "ai_mode",
+        "card_note_type",
+        "card_deck",
+        "cards_auto_add",
     ];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
@@ -414,19 +448,8 @@ async fn study_words(app: AppHandle) -> CmdResult<Vec<StudyWord>> {
 async fn generate_text(app: AppHandle, request: GenerateRequest) -> CmdResult<GenerateResult> {
     blocking(app, move |s| {
         let tok = s.tokenizer()?;
-        let config = s.llm_config();
-        if config.model.trim().is_empty() {
-            return Err("Choose a model for this provider in Settings.".into());
-        }
-        let key = secrets::api_key(config.provider)?.ok_or("Add an API key in Settings first.")?;
-        let mut llm = HttpLlm::new(config, key);
-        if let Ok(url) = std::env::var("ANKURA_LLM_URL") {
-            llm = llm.with_url(&url); // development and tests: a stand-in provider
-        }
-        // Its own connection, so the app's shared one isn't locked while the model writes
-        // (WAL mode lets both work at once).
-        let store = Store::open(&s.data_dir.join("ankura.db")).map_err(err)?;
-        generate::generate_text(&store, tok.as_ref(), &llm, &request).map_err(err)
+        let llm = s.llm()?;
+        generate::generate_text(&s.own_store()?, tok.as_ref(), &llm, &request).map_err(err)
     })
     .await
 }
@@ -484,6 +507,145 @@ fn open_claude_ai() -> CmdResult<()> {
     cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the browser ({e}); go to {URL} yourself"))
 }
 
+// --- phrases and Anki cards (ADR 0012) ---
+
+#[tauri::command]
+async fn phrase_info(app: AppHandle, selection: String) -> CmdResult<Option<reader::ReaderToken>> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        reader::phrase(&s.store(), tok.as_ref(), &selection).map_err(err)
+    })
+    .await
+}
+
+#[derive(Serialize)]
+struct CardOptions {
+    note_types: Vec<String>,
+    decks: Vec<String>,
+    note_type: Option<String>,
+    deck: Option<String>,
+    auto_add: bool,
+}
+
+/// What Settings needs for "Anki cards": Anki's note types and decks, and the current choice.
+#[tauri::command]
+async fn card_options(app: AppHandle) -> CmdResult<CardOptions> {
+    blocking(app, |s| {
+        let anki = s.anki();
+        Ok(CardOptions {
+            note_types: anki.note_types().map_err(err)?.into_iter().map(|(n, _)| n).collect(),
+            decks: anki.deck_names().map_err(err)?,
+            note_type: s.setting("card_note_type").filter(|v| !v.is_empty()),
+            deck: s.setting("card_deck").filter(|v| !v.is_empty()),
+            auto_add: s.setting("cards_auto_add").is_some_and(|v| v == "true"),
+        })
+    })
+    .await
+}
+
+/// Field names of the note type new cards use (for filling a card by hand).
+#[tauri::command]
+async fn card_field_names(app: AppHandle) -> CmdResult<Vec<String>> {
+    blocking(app, |s| s.anki().field_names(&s.card_target()?.note_type).map_err(err)).await
+}
+
+#[tauri::command]
+async fn card_drafts(app: AppHandle) -> CmdResult<Vec<CardDraft>> {
+    blocking(app, |s| s.store().card_drafts().map_err(err)).await
+}
+
+/// Fills a draft's fields, and adds it to Anki when "add without the list" is on.
+fn fill_and_maybe_add(s: &AppState, id: &str) -> CmdResult<CardDraft> {
+    let tok = s.tokenizer()?;
+    let target = s.card_target()?;
+    let store = s.own_store()?;
+    let draft = store.card_draft(id).map_err(err)?.ok_or("This card is no longer in the list.")?;
+    let fields = cards::fill_fields(&store, tok.as_ref(), &s.llm()?, &s.anki(), &draft, &target.note_type).map_err(err)?;
+    store.set_card_fields(id, &fields).map_err(err)?;
+    if s.setting("cards_auto_add").is_some_and(|v| v == "true") {
+        cards::add_to_anki(&store, &s.anki(), id, &target).map_err(err)?;
+    }
+    store.card_draft(id).map_err(err)?.ok_or_else(|| "This card is no longer in the list.".into())
+}
+
+/// A new draft for a word, with the given sentence or (when none) a new one written for it.
+#[tauri::command]
+async fn card_create(
+    app: AppHandle,
+    key: WordKey,
+    display: String,
+    sentence: Option<String>,
+    text_id: Option<String>,
+) -> CmdResult<CardDraft> {
+    blocking(app, move |s| {
+        let (sentence, source) = match sentence {
+            Some(x) => (x, "text"),
+            None => {
+                let tok = s.tokenizer()?;
+                (cards::new_sentence(&s.own_store()?, tok.as_ref(), &s.llm()?, &key, &display).map_err(err)?, "new")
+            }
+        };
+        let draft = s
+            .store()
+            .add_card_draft(&NewCardDraft { key, display, sentence, sentence_source: source.into(), text_id })
+            .map_err(err)?;
+        if s.setting("cards_auto_add").is_some_and(|v| v == "true") {
+            return fill_and_maybe_add(s, &draft.id);
+        }
+        Ok(draft)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn cards_for_text(app: AppHandle, text_id: String) -> CmdResult<Vec<CardDraft>> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        cards::drafts_for_text(&s.store(), tok.as_ref(), &text_id).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn card_fill(app: AppHandle, id: String) -> CmdResult<CardDraft> {
+    blocking(app, move |s| fill_and_maybe_add(s, &id)).await
+}
+
+#[tauri::command]
+async fn card_new_sentence(app: AppHandle, id: String) -> CmdResult<CardDraft> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let store = s.own_store()?;
+        let d = store.card_draft(&id).map_err(err)?.ok_or("This card is no longer in the list.")?;
+        let sentence = cards::new_sentence(&store, tok.as_ref(), &s.llm()?, &d.key, &d.display).map_err(err)?;
+        store.set_card_sentence(&id, &sentence, "new").map_err(err)?;
+        store.card_draft(&id).map_err(err)?.ok_or_else(|| "This card is no longer in the list.".into())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn card_set_fields(app: AppHandle, id: String, fields: BTreeMap<String, String>) -> CmdResult<()> {
+    blocking(app, move |s| s.store().set_card_fields(&id, &fields).map_err(err)).await
+}
+
+#[tauri::command]
+async fn card_discard(app: AppHandle, id: String) -> CmdResult<()> {
+    blocking(app, move |s| s.store().delete_card_draft(&id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn card_add(app: AppHandle, id: String) -> CmdResult<CardDraft> {
+    blocking(app, move |s| {
+        let target = s.card_target()?;
+        let anki = s.anki(); // before locking the store: reading the Anki URL needs it too
+        let store = s.store();
+        cards::add_to_anki(&store, &anki, &id, &target).map_err(err)?;
+        store.card_draft(&id).map_err(err)?.ok_or_else(|| "This card is no longer in the list.".into())
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -532,6 +694,17 @@ pub fn run() {
             chat_prompt,
             chat_submit,
             open_claude_ai,
+            phrase_info,
+            card_options,
+            card_field_names,
+            card_drafts,
+            card_create,
+            cards_for_text,
+            card_fill,
+            card_new_sentence,
+            card_set_fields,
+            card_discard,
+            card_add,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ankura");

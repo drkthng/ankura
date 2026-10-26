@@ -14,7 +14,7 @@
   import CoverageBar from "../components/CoverageBar.svelte";
   import WordPopover from "../components/WordPopover.svelte";
 
-  let { id, onback }: { id: string; onback: () => void } = $props();
+  let { id, onback, oncards }: { id: string; onback: () => void; oncards: () => void } = $props();
 
   type Furigana = "unknown" | "all" | "none";
   const pref = <T extends string>(k: string, d: T): T => {
@@ -39,7 +39,7 @@
   let extra = $state<TextExtra | null>(null);
   let doc = $state<ReaderDoc | null>(null);
   let error = $state("");
-  let selected = $state<{ token: ReaderToken; rect: DOMRect } | null>(null);
+  let selected = $state<{ token: ReaderToken; rect: DOMRect; sentence: string } | null>(null);
 
   onMount(async () => {
     try {
@@ -97,10 +97,63 @@
     flush();
   });
 
-  function open(token: ReaderToken, ev: MouseEvent) {
+  const ENDS = /[。！？!?]$/;
+
+  /** The sentence of a paragraph that token `i` belongs to. */
+  function sentenceAround(para: ReaderToken[], i: number): string {
+    let a = i;
+    while (a > 0 && !ENDS.test(para[a - 1].surface)) a--;
+    let b = i;
+    while (b < para.length - 1 && !ENDS.test(para[b].surface)) b++;
+    while (b < para.length - 1 && /^[」』）)]/.test(para[b + 1].surface)) b++;
+    return para.slice(a, b + 1).map((t) => t.surface).join("").trim();
+  }
+
+  function open(token: ReaderToken, ev: MouseEvent, para: ReaderToken[]) {
     if (!token.key) return;
-    selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect() };
+    const sentence = sentenceAround(para, para.indexOf(token));
+    selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect(), sentence };
     pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
+  }
+
+  /** Selecting several words looks them up as one phrase (気になります → 気になる). */
+  let article: HTMLElement | undefined = $state();
+  async function selectPhrase() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !doc || selected) return;
+    const range = sel.getRangeAt(0);
+    if (!article?.contains(range.commonAncestorContainer)) return;
+    const frag = range.cloneContents();
+    frag.querySelectorAll("rt").forEach((r) => r.remove()); // furigana isn't part of the text
+    const text = (frag.textContent ?? "").replace(/\s+/g, "");
+    if (text.length < 2) return;
+    const rect = range.getBoundingClientRect();
+    const p = (range.startContainer.nodeType === 1 ? (range.startContainer as Element) : range.startContainer.parentElement)?.closest("p[data-p]") as HTMLElement | null;
+    const para = p ? doc.paragraphs[Number(p.dataset.p)] : [];
+    const paraText = para.map((t) => t.surface).join("");
+    const sentence =
+      paraText.split(/(?<=[。！？!?][」』）)]?)/).find((x) => x.includes(text))?.trim() ?? paraText.trim();
+    try {
+      const token = await api.phraseInfo(text);
+      if (!token?.key) return;
+      sel.removeAllRanges();
+      selected = { token, rect, sentence };
+      pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  // --- cards for a written text's target words ---
+  let cardsMsg = $state("");
+  async function cardsForTargets() {
+    cardsMsg = "";
+    try {
+      const made = await api.cardsForText(id);
+      cardsMsg = made.length ? `${made.length} card${made.length === 1 ? "" : "s"} added to your card list.` : "These words are already in your card list.";
+    } catch (e) {
+      cardsMsg = String(e);
+    }
   }
 
   function coverageOf(d: ReaderDoc): Coverage {
@@ -147,6 +200,8 @@
   const isWord = (t: ReaderToken) => t.key !== null;
 </script>
 
+<svelte:window onmouseup={selectPhrase} />
+
 <div class="reader-page">
   <header class="toolbar">
     <button class="ghost" onclick={onback}>← Library</button>
@@ -170,13 +225,14 @@
   {#if doc}
     <div class="summary">
       <CoverageBar coverage={doc.coverage} />
+      <p class="muted tip">Tip: drag across several words to look them up as one phrase.</p>
       {#if extra}
         <p class="muted written">
           Written for you around {extra.targets.join("、")}{extra.topic ? ` · ${extra.topic}` : ""}
         </p>
       {/if}
     </div>
-    <article class="text" class:hl={highlight} class:vertical>
+    <article class="text" class:hl={highlight} class:vertical bind:this={article}>
       {#each doc.paragraphs as para, i}
         <p use:observe data-p={i}>
           {#each para as t}
@@ -187,8 +243,8 @@
                 class:selected={selected?.token === t}
                 role="button"
                 tabindex="0"
-                onclick={(e) => open(t, e)}
-                onkeydown={(e) => e.key === "Enter" && open(t, e as unknown as MouseEvent)}
+                onclick={(e) => window.getSelection()?.isCollapsed !== false && open(t, e, para)}
+                onkeydown={(e) => e.key === "Enter" && open(t, e as unknown as MouseEvent, para)}
               >
                 {#each t.segments as s}
                   {#if s.ruby && showRuby(t)}<ruby>{s.text}<rt>{s.ruby}</rt></ruby>{:else}{s.text}{/if}
@@ -213,6 +269,13 @@
             </li>
           {/each}
         </ul>
+        <div class="row cards-row">
+          <button onclick={cardsForTargets}>Make Anki cards for {extra.targets.join("、")}</button>
+          {#if cardsMsg}
+            <span class="muted">{cardsMsg}</span>
+            {#if cardsMsg.includes("card list")}<button class="ghost" onclick={oncards}>Open Cards</button>{/if}
+          {/if}
+        </div>
       </section>
     {/if}
   {:else if !error}
@@ -227,6 +290,8 @@
     onclose={() => (selected = null)}
     onmark={mark}
     ondontknow={dontKnow}
+    sentence={selected.sentence}
+    textId={id}
   />
 {/if}
 
@@ -291,6 +356,13 @@
   /* Vertical text has no bottom padding to pull back into. */
   .text.vertical + .examples {
     margin-top: 1.5rem;
+  }
+  .tip {
+    margin: 0.4rem 0 0;
+    font-size: 0.8rem;
+  }
+  .cards-row {
+    margin-top: 1rem;
   }
   .examples h2 {
     font-size: 1rem;

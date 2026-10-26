@@ -1,5 +1,6 @@
-//! Reading Anki. `AnkiSource` is the interface (ADR 0009); AnkiConnect is the desktop
+//! Talking to Anki. `AnkiSource` is the interface (ADR 0009); AnkiConnect is the desktop
 //! implementation (ADR 0004). AnkiDroid's provider becomes a second implementation later.
+//! Writing is add-only (ADR 0007): the client refuses any action not on its allow-list.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -28,7 +29,32 @@ pub trait AnkiSource {
     fn notes_info(&self, note_ids: &[i64]) -> Result<Vec<NoteInfo>>;
     /// Current interval per card: days for review cards, negative seconds for learning cards.
     fn intervals(&self, card_ids: &[i64]) -> Result<Vec<i64>>;
+    fn deck_names(&self) -> Result<Vec<String>>;
+    /// Adds a note unless Anki says it can't (a duplicate, an empty first field); returns its ID.
+    fn add_note(&self, note: &NewNote) -> Result<i64>;
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewNote {
+    pub deck: String,
+    pub note_type: String,
+    pub fields: BTreeMap<String, String>,
+    pub tags: Vec<String>,
+}
+
+/// Every AnkiConnect action Ankura may send. Only the last two write, and they only add (ADR 0007).
+const ALLOWED_ACTIONS: [&str; 10] = [
+    "version",
+    "modelNamesAndIds",
+    "modelFieldNames",
+    "findNotes",
+    "findCards",
+    "notesInfo",
+    "getIntervals",
+    "deckNames",
+    "canAddNotesWithErrorDetail",
+    "addNote",
+];
 
 pub struct AnkiConnect {
     url: String,
@@ -48,6 +74,9 @@ impl AnkiConnect {
     }
 
     fn call(&self, action: &str, params: Value) -> Result<Value> {
+        if !ALLOWED_ACTIONS.contains(&action) {
+            return Err(Error::Anki(format!("Ankura doesn't send the AnkiConnect action {action}")));
+        }
         let body = json!({ "action": action, "version": 6, "params": params });
         let mut resp = self
             .agent
@@ -129,6 +158,26 @@ impl AnkiSource for AnkiConnect {
         }
         Ok(out)
     }
+
+    fn deck_names(&self) -> Result<Vec<String>> {
+        serde_json::from_value(self.call("deckNames", json!({}))?).map_err(|e| Error::Anki(e.to_string()))
+    }
+
+    fn add_note(&self, note: &NewNote) -> Result<i64> {
+        let n = json!({
+            "deckName": note.deck,
+            "modelName": note.note_type,
+            "fields": note.fields,
+            "tags": note.tags,
+            "options": {"allowDuplicate": false},
+        });
+        let check = self.call("canAddNotesWithErrorDetail", json!({ "notes": [n] }))?;
+        if check[0]["canAdd"] == false {
+            let why = check[0]["error"].as_str().unwrap_or("Anki refused the note");
+            return Err(Error::Anki(format!("can't add the note: {why}")));
+        }
+        self.call("addNote", json!({ "note": n }))?.as_i64().ok_or_else(|| Error::Anki("addNote returned no ID".into()))
+    }
 }
 
 #[cfg(test)]
@@ -136,6 +185,7 @@ pub(crate) mod fake {
     //! An in-process AnkiConnect stand-in for tests: a tiny HTTP server over a fixed collection.
 
     use std::collections::{BTreeMap, HashSet};
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     use serde_json::{Value, json};
@@ -189,8 +239,18 @@ pub(crate) mod fake {
     }
 
     pub fn serve(notes: Vec<FakeNote>) -> String {
+        serve_logged(notes).0
+    }
+
+    /// Like `serve`, and also returns the notes added through `addNote`.
+    pub fn serve_logged(notes: Vec<FakeNote>) -> (String, Arc<Mutex<Vec<Value>>>) {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let url = format!("http://{}", server.server_addr().to_ip().unwrap());
+        let added = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let log = added.clone();
+        // A duplicate shares the first field of a note of the same type.
+        let first_fields: Vec<(&'static str, &'static str)> =
+            notes.iter().map(|n| (n.model.0, n.fields.first().map(|f| f.1).unwrap_or(""))).collect();
         thread::spawn(move || {
             for mut req in server.incoming_requests() {
                 let mut body = String::new();
@@ -244,13 +304,32 @@ pub(crate) mod fake {
                             .map(|id| notes.iter().flat_map(|n| &n.cards).find(|c| c.id == *id).unwrap().interval)
                             .collect::<Vec<_>>())
                     }
+                    "deckNames" => json!(["Default", "Japanisch"]),
+                    "canAddNotesWithErrorDetail" => {
+                        let n = &p["notes"][0];
+                        let model = n["modelName"].as_str().unwrap();
+                        let fields = n["fields"].as_object().unwrap();
+                        let first = fields.values().next().and_then(Value::as_str).unwrap_or("");
+                        let dup = first_fields.iter().any(|(m, f)| *m == model && *f == first)
+                            || log.lock().unwrap().iter().any(|a| a["modelName"] == model && a["fields"].as_object().unwrap().values().next().and_then(Value::as_str) == Some(first));
+                        if dup {
+                            json!([{"canAdd": false, "error": "cannot create note because it is a duplicate"}])
+                        } else {
+                            json!([{"canAdd": true}])
+                        }
+                    }
+                    "addNote" => {
+                        let mut l = log.lock().unwrap();
+                        l.push(p["note"].clone());
+                        json!(9000 + l.len() as i64)
+                    }
                     other => panic!("fake AnkiConnect: unexpected action {other}"),
                 };
                 let reply = json!({ "result": result, "error": null }).to_string();
                 req.respond(tiny_http::Response::from_string(reply)).unwrap();
             }
         });
-        url
+        (url, added)
     }
 }
 
@@ -276,6 +355,38 @@ mod tests {
         assert_eq!(n[0].fields["Vocab"], "<b>猫</b>");
         assert_eq!(n[0].cards, vec![1]);
         assert_eq!(a.intervals(&[1]).unwrap(), vec![30]);
+    }
+
+    #[test]
+    fn adds_notes_and_refuses_duplicates() {
+        let (url, added) = serve_logged(vec![FakeNote {
+            id: 100,
+            model: ("Core", 7),
+            fields: vec![("Vocab", "猫"), ("Reading", "ねこ")],
+            cards: vec![],
+        }]);
+        let a = AnkiConnect::new(&url);
+        assert_eq!(a.deck_names().unwrap(), vec!["Default", "Japanisch"]);
+        let note = |vocab: &str| NewNote {
+            deck: "Default".into(),
+            note_type: "Core".into(),
+            fields: BTreeMap::from([("Vocab".into(), vocab.into()), ("Reading".into(), "x".into())]),
+            tags: vec!["ankura".into()],
+        };
+        assert_eq!(a.add_note(&note("犬")).unwrap(), 9001);
+        let e = a.add_note(&note("猫")).unwrap_err().to_string();
+        assert!(e.contains("duplicate"), "{e}");
+        let log = added.lock().unwrap();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0]["tags"][0], "ankura");
+        assert_eq!(log[0]["options"]["allowDuplicate"], false);
+    }
+
+    #[test]
+    fn only_sends_allowed_actions() {
+        let a = AnkiConnect::new("http://127.0.0.1:9");
+        let e = a.call("deleteNotes", json!({"notes": [1]})).unwrap_err().to_string();
+        assert!(e.contains("doesn't send"), "{e}");
     }
 
     #[test]

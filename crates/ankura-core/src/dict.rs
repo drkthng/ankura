@@ -198,25 +198,27 @@ pub fn readings(store: &Store, expression: &str) -> Result<Vec<String>> {
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
+/// Writes a Yomitan zip with the given term banks (tests).
+#[cfg(test)]
+pub(crate) fn write_zip(path: &Path, banks: &[(&str, Value)]) {
+    use std::io::Write;
+    let mut z = zip::ZipWriter::new(File::create(path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    z.start_file("index.json", opts).unwrap();
+    z.write_all(serde_json::json!({"title": "Test", "revision": "1", "format": 3}).to_string().as_bytes()).unwrap();
+    for (name, v) in banks {
+        z.start_file(*name, opts).unwrap();
+        z.write_all(v.to_string().as_bytes()).unwrap();
+    }
+    z.finish().unwrap();
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
     use serde_json::json;
 
     use super::*;
 
-    fn write_zip(path: &Path, banks: &[(&str, Value)]) {
-        let mut z = zip::ZipWriter::new(File::create(path).unwrap());
-        let opts = zip::write::SimpleFileOptions::default();
-        z.start_file("index.json", opts).unwrap();
-        z.write_all(json!({"title": "Test", "revision": "1", "format": 3}).to_string().as_bytes()).unwrap();
-        for (name, v) in banks {
-            z.start_file(*name, opts).unwrap();
-            z.write_all(v.to_string().as_bytes()).unwrap();
-        }
-        z.finish().unwrap();
-    }
 
     #[test]
     fn import_and_lookup() {

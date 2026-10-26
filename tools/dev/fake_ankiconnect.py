@@ -108,6 +108,8 @@ def build():
 
 
 NOTES = build()
+# Notes added through addNote (served at GET /added for tests).
+ADDED = []
 
 
 def tokens(q):
@@ -195,6 +197,22 @@ def act(action, p):
             for n in NOTES
             if n["id"] in want
         ]
+    if action == "deckNames":
+        return sorted({c["deck"] for n in NOTES for c in n["cards"]} | {"Default"})
+    if action == "canAddNotesWithErrorDetail":
+        out = []
+        for note in p["notes"]:
+            first = next(iter(note["fields"].values()), "")
+            dup = any(n["model"][0] == note["modelName"] and n["fields"][0] == first for n in NOTES + ADDED)
+            out.append({"canAdd": False, "error": "cannot create note because it is a duplicate"} if dup else {"canAdd": True})
+        return out
+    if action == "addNote":
+        note = p["note"]
+        model = next(m for m in (VOCAB, KANJI, SENTENCES) if m[0] == note["modelName"])
+        nid = 1_800_000_000_000 + len(ADDED)
+        ADDED.append({"id": nid, "model": model, "fields": [note["fields"].get(f, "") for f in model[2]],
+                      "deck": note["deckName"], "tags": note["tags"], "cards": []})
+        return nid
     if action == "getIntervals":
         by_id = {c["id"]: c for n in NOTES for c in n["cards"]}
         return [by_id[i]["interval"] for i in p["cards"]]
@@ -202,6 +220,15 @@ def act(action, p):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        data = json.dumps(ADDED, ensure_ascii=False).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")  # no pooled connections the server has closed
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         try:
@@ -212,6 +239,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")  # no pooled connections the server has closed
         self.end_headers()
         self.wfile.write(data)
 

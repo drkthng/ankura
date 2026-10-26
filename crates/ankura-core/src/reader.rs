@@ -44,6 +44,50 @@ pub struct ReaderDoc {
     pub coverage: Coverage,
 }
 
+/// A phrase the user selected (気になります), as one token: its dictionary form (気になる), reading
+/// and state. Prefers the form the dictionary knows: the last content word in its dictionary form,
+/// or else the selection as written. `None` for a selection without words.
+pub fn phrase(store: &Store, tok: &dyn Tokenizer, selection: &str) -> Result<Option<ReaderToken>> {
+    let selection = selection.trim();
+    let toks: Vec<_> =
+        tok.tokenize(selection)?.into_iter().filter(|t| !matches!(t.kind, TokenKind::Space | TokenKind::Symbol)).collect();
+    let Some(last) = toks.iter().rposition(|t| matches!(t.kind, TokenKind::Word | TokenKind::Name)) else {
+        return Ok(None);
+    };
+    let reading_of = |t: &crate::tokenize::Token| if t.reading.is_empty() { t.surface.clone() } else { t.reading.clone() };
+    let mut base = String::new();
+    let mut base_reading = String::new();
+    for t in &toks[..last] {
+        base.push_str(&t.surface);
+        base_reading.push_str(&reading_of(t));
+    }
+    base.push_str(&toks[last].dictionary_form);
+    base_reading.push_str(&toks[last].lemma_reading);
+    let written: String = toks.iter().map(|t| t.surface.as_str()).collect();
+    let written_reading: String = toks.iter().map(reading_of).collect();
+
+    let mut chosen = (base.clone(), base_reading.clone());
+    for (form, reading) in [(base, base_reading), (written, written_reading)] {
+        if let Some(e) = crate::dict::lookup(store, &form, &reading)?.into_iter().find(|e| e.expression == form) {
+            chosen = (form, e.reading);
+            break;
+        }
+    }
+    let (form, reading) = chosen;
+    let key = WordKey { lang: tok.lang().to_string(), lemma: form.clone(), reading };
+    let (state, source) = state_of(store, &key)?;
+    Ok(Some(ReaderToken {
+        surface: selection.to_string(),
+        dictionary_form: form,
+        segments: vec![Segment { text: selection.to_string(), ruby: None }],
+        kind: TokenKind::Word,
+        key: Some(key),
+        state,
+        source: source.into(),
+        has_kanji: has_kanji(selection),
+    }))
+}
+
 /// Very common words every learner knows but few have cards for, as Sudachi normalizes them
 /// (する → 為る, こと → 事). They count as known unless the user marks them otherwise.
 const BASIC_WORDS: &[&str] = &[
@@ -122,6 +166,29 @@ mod tests {
     use super::*;
     use crate::knowledge::{CardFacts, KnowledgeSettings};
     use crate::tokenize::test_support::sudachi;
+
+    #[test]
+    fn selected_phrases() {
+        let Some(t) = sudachi() else { return };
+        let mut s = Store::open_in_memory().unwrap();
+        // Without a dictionary: the last content word goes to its dictionary form.
+        let p = phrase(&s, t, " 気になります。").unwrap().unwrap();
+        assert_eq!((p.dictionary_form.as_str(), p.surface.as_str()), ("気になる", "気になります。"));
+        assert_eq!(p.key.as_ref().unwrap().reading, "きになる");
+        assert_eq!(p.state, WordState::Unknown);
+        assert!(phrase(&s, t, "、。").unwrap().is_none());
+
+        // With one: the form the dictionary has wins (here the polite set phrase as written).
+        let dir = tempfile::tempdir().unwrap();
+        let zip = dir.path().join("d.zip");
+        crate::dict::write_zip(&zip, &[("term_bank_1.json", serde_json::json!([
+            ["お願いします", "おねがいします", "exp", "", 100, ["please"], 1, ""]
+        ]))]);
+        crate::dict::import_yomitan_zip(&mut s, &zip).unwrap();
+        let p = phrase(&s, t, "お願いします").unwrap().unwrap();
+        assert_eq!(p.dictionary_form, "お願いします");
+        assert_eq!(p.key.unwrap().reading, "おねがいします");
+    }
 
     #[test]
     fn colours_and_coverage() {

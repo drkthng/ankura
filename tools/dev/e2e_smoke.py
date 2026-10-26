@@ -296,7 +296,12 @@ def main():
         d.shot(out / "11-chat-rewrite.png")
         d.js(paste, "```json\n" + json.dumps(draft(prompt), ensure_ascii=False) + "\n```")
         d.click("//button[normalize-space()='Check it']")
-        if d.js("return !!document.querySelector('p.verdict') && !document.querySelector('p.written')"):
+        # Wait for the check: either the reader opens, or a second verdict (try 3) appears.
+        for _ in range(60):
+            if d.js("return !!document.querySelector('p.written') || document.body.innerText.includes('Try 3')"):
+                break
+            time.sleep(0.5)
+        if not d.js("return !!document.querySelector('p.written')"):
             print("good reply still under 95%:", d.text("//p[contains(@class,'verdict')]"))
             d.click("//button[contains(., 'Use this version anyway')]")
         written = d.text("//p[contains(@class,'written')]", timeout=30)
@@ -304,6 +309,63 @@ def main():
         time.sleep(0.5)
         d.shot(out / "12-chat-saved.png")
         assert len(d.invoke("list_texts")) == 3
+
+        # Anki cards (ADR 0012): choose where they go, card a word and a selected phrase, add both.
+        d.click("//nav//button[normalize-space()='Settings']")
+        d.find("//select[@id='cnt']/option[@value='Satzkarten']")
+        choose = "const [id, v] = arguments; const s = document.getElementById(id); s.value = v; s.dispatchEvent(new Event('change'));"
+        d.js(choose, "cnt", "Satzkarten")
+        d.js(choose, "cdk", "日本語::文")
+        d.click("//section[.//h2[normalize-space()='Anki cards']]//button[normalize-space()='Save']")
+        d.find("//section[.//h2[normalize-space()='Anki cards']]//span[normalize-space()='Saved.']")
+
+        d.click("//nav//button[normalize-space()='Library']")
+        d.click("//button[contains(@class,'open')][contains(., '駅の朝')]")
+        d.click("//span[contains(@class,'tok') and normalize-space(.)='傘' or contains(@class,'tok') and starts-with(normalize-space(.), '傘')]")
+        d.click("//div[@role='dialog']//button[normalize-space()='with this sentence']")
+        msg = d.text("//div[@role='dialog']//span[contains(@class,'card-msg')]")
+        assert "card list" in msg, msg
+        d.js("document.querySelector('.backdrop').click()")
+        # Select 気分がよかった (skipping furigana) and let go of the mouse.
+        d.js(
+            "const target = '気分がよかった'; const art = document.querySelector('article.text');"
+            "const w = document.createTreeWalker(art, NodeFilter.SHOW_TEXT, {acceptNode: n => n.parentElement.closest('rt') ? 2 : 1});"
+            "const nodes = []; let all = ''; for (let n; (n = w.nextNode());) { nodes.push([n, all.length]); all += n.data; }"
+            "const at = (i) => { for (let k = nodes.length - 1; k >= 0; k--) if (nodes[k][1] <= i) return [nodes[k][0], i - nodes[k][1]]; };"
+            "const i = all.indexOf(target); const r = document.createRange();"
+            "r.setStart(...at(i)); r.setEnd(...at(i + target.length));"
+            "const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);"
+            "window.dispatchEvent(new MouseEvent('mouseup'));"
+        )
+        d.find("//div[@role='dialog']//ol[contains(@class,'senses')]")
+        lemma = d.js("return document.querySelector('[role=dialog] .lemma').textContent")  # visible or not
+        print("phrase:", lemma)
+        assert lemma.startswith("気分が"), lemma
+        d.shot(out / "13-phrase.png")
+        d.click("//div[@role='dialog']//button[normalize-space()='with a new sentence']")
+        msg = d.text("//div[@role='dialog']//span[contains(@class,'card-msg')]", timeout=60)
+        assert "card list" in msg, msg
+        d.js("document.querySelector('.backdrop').click()")
+
+        d.click("//nav//button[normalize-space()='Cards']")
+        d.find("//section[contains(@class,'draft')][2]//textarea", timeout=60)  # both filled in
+        print("field names:", d.invoke("card_field_names"))
+        labels = d.js("return [...document.querySelectorAll('section.draft')][0].querySelector('.fields label').textContent")
+        assert labels == "Original sentence", labels  # Anki's field order, not alphabetical
+        fields = d.js("return [...document.querySelectorAll('section.draft')].map(s => s.querySelector('textarea').value)")
+        print("first fields:", fields)
+        assert any("<b>傘</b>" in f for f in fields), fields
+        d.shot(out / "14-cards.png")
+        d.click("//button[normalize-space()='Add 2 to Anki']")
+        for _ in range(60):  # until both have left the list
+            if d.js("return document.querySelectorAll('section.draft').length === 0"):
+                break
+            time.sleep(0.5)
+        d.find("//h2[normalize-space()='Added to Anki']")
+        added = json.loads(OPENER.open("http://127.0.0.1:8765/added").read())
+        print("added to Anki:", [(n["fields"][0], n["deck"], n["tags"]) for n in added])
+        assert len(added) == 2 and all(n["tags"] == ["ankura"] and n["deck"] == "日本語::文" for n in added), added
+        d.shot(out / "15-cards-added.png")
         print("OK")
     except Exception:
         if d:

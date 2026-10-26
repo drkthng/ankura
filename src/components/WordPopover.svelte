@@ -8,13 +8,34 @@
     onclose,
     onmark,
     ondontknow,
+    sentence = "",
+    textId = null,
   }: {
     token: ReaderToken;
     anchor: DOMRect;
     onclose: () => void;
     onmark: (state: WordState | null) => void;
     ondontknow: () => void;
+    /** The sentence the word appears in, for a card. */
+    sentence?: string;
+    textId?: string | null;
   } = $props();
+
+  // --- Anki card ---
+  let carding = $state<"" | "text" | "new">("");
+  let cardMsg = $state("");
+  async function makeCard(useSentence: boolean) {
+    carding = useSentence ? "text" : "new";
+    cardMsg = "";
+    try {
+      const d = await api.cardCreate(key, token.dictionary_form, useSentence ? sentence : null, textId);
+      cardMsg = d.status === "added" ? "✓ Added to Anki" : "✓ In your card list (Cards)";
+    } catch (e) {
+      cardMsg = String(e);
+    } finally {
+      carding = "";
+    }
+  }
 
   let info = $state<WordInfo | null>(null);
   let error = $state("");
@@ -89,6 +110,19 @@
   {:else if !error}
     <p class="muted">Looking up…</p>
   {/if}
+
+  <section class="card-row">
+    <span class="muted small">Anki card:</span>
+    {#if sentence}
+      <button class="ghost" disabled={carding !== ""} onclick={() => makeCard(true)} title={sentence}>
+        {carding === "text" ? "Adding…" : "with this sentence"}
+      </button>
+    {/if}
+    <button class="ghost" disabled={carding !== ""} onclick={() => makeCard(false)} title="The AI writes a sentence in which only this word is new to you">
+      {carding === "new" ? "Writing a sentence…" : "with a new sentence"}
+    </button>
+    {#if cardMsg}<span class="small card-msg" class:error={!cardMsg.startsWith("✓")}>{cardMsg}</span>{/if}
+  </section>
 
   <footer>
     <button class="primary" onclick={ondontknow}>I don't know this</button>
@@ -192,6 +226,22 @@
   }
   .small {
     font-size: 0.82rem;
+    margin: 0;
+  }
+  .card-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    border-top: 1px solid var(--line);
+    padding-top: 0.5rem;
+  }
+  .card-row button {
+    font-size: 0.85rem;
+    padding: 0.2em 0.6em;
+  }
+  .card-msg {
+    flex-basis: 100%;
     margin: 0;
   }
   footer {

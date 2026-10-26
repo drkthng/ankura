@@ -56,7 +56,9 @@ Known gaps after M1, to pick up next:
       generation.
 - [ ] Stats: words seen, lookups, friction, "stealth leeches", reading streaks and character
       counts.
-- [ ] Add a word to Anki (add-only, ADR 0007).
+- [x] Anki cards from reading: card list, i+1 sentences, fields in the style of the user's notes,
+      add-only (ADR 0007, ADR 0012).
+- [x] Select a phrase in the reader to look it up and card it as one unit (ADR 0012).
 - [ ] Kanji popover: other words in your deck with the same kanji.
 - [ ] Correctable furigana, card readings, counter sound changes (ADR 0008 consequences).
 

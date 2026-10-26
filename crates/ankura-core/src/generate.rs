@@ -118,7 +118,7 @@ impl Check {
 }
 
 /// Coverage of a text, counting target words as covered, and which targets are missing.
-fn check(store: &Store, tok: &dyn Tokenizer, text: &str, targets: &[(String, HashSet<String>)]) -> Result<Check> {
+pub(crate) fn check(store: &Store, tok: &dyn Tokenizer, text: &str, targets: &[(String, HashSet<String>)]) -> Result<Check> {
     let doc = analyze(store, tok, text)?;
     let all_targets: HashSet<&String> = targets.iter().flat_map(|(_, lemmas)| lemmas).collect();
     let (mut words, mut covered) = (0usize, 0usize);
@@ -178,18 +178,23 @@ pub struct Prepared {
     lang: String,
 }
 
+/// Each target's lemmas as the tokenizer sees them, so conjugated uses count.
+pub(crate) fn target_lemmas(tok: &dyn Tokenizer, targets: &[String]) -> Result<Vec<(String, HashSet<String>)>> {
+    let mut out = Vec::new();
+    for t in targets {
+        let mut lemmas: HashSet<String> = keys_for_field(tok, t, None)?.keys.into_iter().map(|k| k.lemma).collect();
+        lemmas.insert(t.clone());
+        out.push((t.clone(), lemmas));
+    }
+    Ok(out)
+}
+
 pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Result<Prepared> {
     let targets: Vec<String> = req.targets.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
     if targets.is_empty() {
         return Err(Error::Llm("pick at least one target word".into()));
     }
-    // Each target's lemmas as the tokenizer sees them, so conjugated uses count.
-    let mut target_lemmas = Vec::new();
-    for t in &targets {
-        let mut lemmas: HashSet<String> = keys_for_field(tok, t, None)?.keys.into_iter().map(|k| k.lemma).collect();
-        lemmas.insert(t.clone());
-        target_lemmas.push((t.clone(), lemmas));
-    }
+    let target_lemmas = target_lemmas(tok, &targets)?;
     let lang = tok.lang().to_string();
     let known = store.known_lemmas(&lang, KNOWN_SAMPLE)?;
     let fading: Vec<String> = store

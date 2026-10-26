@@ -3,7 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { api, type AiMode, type AiSettings, type Provider, type Status } from "../lib/api";
+  import { api, type AiMode, type AiSettings, type CardOptions, type Provider, type Status } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
@@ -78,8 +78,34 @@
     await api.setSetting("ai_mode", mode);
     await loadAi();
   }
+  // --- Anki cards (ADR 0012) ---
+  let cardOpts = $state<CardOptions | null>(null);
+  let cardsError = $state("");
+  let cardNoteType = $state("");
+  let cardDeck = $state("");
+  let autoAdd = $state(false);
+  let cardsMessage = $state("");
+  async function loadCards() {
+    cardsError = "";
+    try {
+      cardOpts = await api.cardOptions();
+      cardNoteType = cardOpts.note_type ?? "";
+      cardDeck = cardOpts.deck ?? "";
+      autoAdd = cardOpts.auto_add;
+    } catch (e) {
+      cardsError = String(e);
+    }
+  }
+  async function saveCards() {
+    await api.setSetting("card_note_type", cardNoteType);
+    await api.setSetting("card_deck", cardDeck);
+    await api.setSetting("cards_auto_add", String(autoAdd));
+    cardsMessage = "Saved.";
+  }
+
   onMount(() => {
     loadAi().catch((e) => (error = String(e)));
+    loadCards();
   });
   async function switchProvider() {
     await api.setSetting("ai_provider", provider);
@@ -214,6 +240,39 @@
         <span class="muted small">Get a key at console.anthropic.com → API keys.</span>
       {/if}
     </div>
+  </section>
+
+  <section class="card">
+    <h2>Anki cards</h2>
+    <p class="muted">
+      Cards you make while reading go into this note type and deck. Ankura fills them in like your newest notes of
+      that type, and only ever adds notes (tagged <code>ankura</code>).
+    </p>
+    {#if cardsError}
+      <p class="error">{cardsError}</p>
+      <button onclick={loadCards}>Try again</button>
+    {:else if cardOpts}
+      <div class="grid">
+        <label for="cnt">Note type</label>
+        <select id="cnt" bind:value={cardNoteType}>
+          <option value="" disabled>Choose…</option>
+          {#each cardOpts.note_types as n}<option value={n}>{n}</option>{/each}
+        </select>
+        <label for="cdk">Deck</label>
+        <select id="cdk" bind:value={cardDeck}>
+          <option value="" disabled>Choose…</option>
+          {#each cardOpts.decks as d}<option value={d}>{d}</option>{/each}
+        </select>
+        <label for="caa">Add cards to Anki straight away, without the card list</label>
+        <span><input id="caa" type="checkbox" bind:checked={autoAdd} /></span>
+      </div>
+      <div class="row">
+        <button onclick={saveCards} disabled={!cardNoteType || !cardDeck}>Save</button>
+        {#if cardsMessage}<span class="muted">{cardsMessage}</span>{/if}
+      </div>
+    {:else}
+      <p class="muted">Asking Anki…</p>
+    {/if}
   </section>
 
   <section class="card">
