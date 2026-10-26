@@ -131,12 +131,26 @@ impl Tokenizer for SudachiTokenizer {
                     }
                 }
             }
+            let surface = m.surface().to_string();
+            let mut reading = to_hiragana(m.reading_form());
+            let mut lemma_reading = lemma_reading;
+            if let Some((_, _, preferred)) = PREFERRED_READINGS.iter().find(|(s, l, _)| *s == surface && *l == lemma) {
+                reading = preferred.to_string();
+                lemma_reading = preferred.to_string();
+            }
+            // ている, てしまう, てみる, ておく, てほしい…: an auxiliary, not a word of its own.
+            let after_te = out.last().is_some_and(|p: &Token| p.kind == TokenKind::Grammar && (p.surface == "て" || p.surface == "で"));
+            let kind = if after_te && pos.get(1).is_some_and(|p| p == "非自立可能") && matches!(pos[0].as_str(), "動詞" | "形容詞") {
+                TokenKind::Grammar
+            } else {
+                kind
+            };
             out.push(Token {
-                surface: m.surface().to_string(),
+                surface,
                 dictionary_form: m.dictionary_form().to_string(),
                 lemma,
                 lemma_reading,
-                reading: to_hiragana(m.reading_form()),
+                reading,
                 pos,
                 kind,
                 parts,
@@ -145,6 +159,11 @@ impl Tokenizer for SudachiTokenizer {
         Ok(out)
     }
 }
+
+/// Sudachi readings that are right but too formal for ordinary prose: (surface, lemma, reading).
+/// Applied to both the furigana and the word key, so the key matches how Anki cards spell the
+/// reading. The reader's correctable furigana (ROADMAP M3) handles the rest.
+const PREFERRED_READINGS: &[(&str, &str, &str)] = &[("私", "私", "わたし")];
 
 #[cfg(test)]
 pub(crate) mod test_support {
@@ -183,6 +202,11 @@ mod tests {
         assert_eq!(w.kind, TokenKind::Word);
         assert_eq!(toks.iter().find(|t| t.surface == "が").unwrap().kind, TokenKind::Grammar);
         assert_eq!(toks.last().unwrap().kind, TokenKind::Symbol);
+
+        let toks = t.tokenize("私は雨が降っていた").unwrap();
+        assert_eq!((toks[0].reading.as_str(), toks[0].lemma_reading.as_str()), ("わたし", "わたし"));
+        let i = toks.iter().find(|t| t.surface == "い").unwrap();
+        assert_eq!(i.kind, TokenKind::Grammar);
 
         let toks = t.tokenize("東京へ行った").unwrap();
         assert_eq!(toks[0].kind, TokenKind::Name);

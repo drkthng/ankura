@@ -12,6 +12,9 @@ use crate::{Result, WordKey};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReaderToken {
     pub surface: String,
+    /// Dictionary form as written in the text (ぬいぐるみ), for display; `key.lemma` is the
+    /// normalized spelling (縫い包み) used for matching.
+    pub dictionary_form: String,
     pub segments: Vec<Segment>,
     pub kind: TokenKind,
     /// Set for words and names.
@@ -89,6 +92,7 @@ pub fn analyze(store: &Store, tok: &dyn Tokenizer, text: &str) -> Result<ReaderD
             out.push(ReaderToken {
                 segments: segments(&t.surface, &t.reading),
                 has_kanji: has_kanji(&t.surface),
+                dictionary_form: t.dictionary_form,
                 surface: t.surface,
                 kind: t.kind,
                 key,

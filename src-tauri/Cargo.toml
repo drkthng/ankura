@@ -1,4 +1,22 @@
 [package]
 name = "ankura"
+description = "Ankura desktop app"
 edition.workspace = true
+license.workspace = true
 version.workspace = true
+
+[lib]
+name = "ankura_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+ankura-core = { path = "../crates/ankura-core" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+ureq.workspace = true
+zip.workspace = true

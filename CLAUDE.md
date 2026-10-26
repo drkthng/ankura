@@ -4,9 +4,10 @@ Ankura is a cross-platform (desktop + Android) extensive-reading tool for langua
 knows the user's Anki card stats, tracks its own word/kanji exposure and lookup stats, and uses AI
 to generate interest-tailored n+1 texts with a high share of known words.
 
-**Status:** no code yet. Start with `docs/HANDOFF.md`, which covers the vision, requirements,
-open decisions, and the first phase of work. `docs/research/prior-ai-report.md` is an unverified
-research report written by a weaker model. Treat it as leads to check, not as fact.
+**Status:** desktop app for Japanese, milestone M1 (`docs/ROADMAP.md`). Background:
+`docs/HANDOFF.md` (vision, requirements, first phase) and the ADRs in `docs/adr/`.
+`docs/research/prior-ai-report.md` is an unverified report by a weaker model; treat it as leads to
+check, not as fact.
 
 ## Working rules (from the owner's global config; cloud sessions don't see that file)
 
@@ -34,5 +35,9 @@ research report written by a weaker model. Treat it as leads to check, not as fa
   `docs/architecture-options.md` §9 (S3 done: `spikes/s3-tokenizers/REPORT.md`).
 - v1 languages: Japanese, Italian, Spanish (ADR 0001). Japanese tokenizer: sudachi.rs +
   SudachiDict core (ADR 0008).
-- Build / test / lint commands: _none yet_
+- Layout: `crates/ankura-core` (engine, no UI or platform code), `src-tauri` (Tauri shell and
+  commands), `src` (Svelte 5 UI), `tools/dev` (fake AnkiConnect, dev JMdict, e2e smoke test).
+- Build / test: `npm install`, `npm run tauri dev`, `npm run check`, `cargo test -p ankura-core`
+  (set `ANKURA_SUDACHI_DIC` to a SudachiDict `system.dic` to include the tokenizer tests). E2E:
+  `npx tauri build --debug --no-bundle` then `tools/dev/e2e_smoke.py` (see README).
 - Record architecture decisions in `docs/adr/NNNN-title.md`.

@@ -7,23 +7,34 @@ use.
 
 Paste a Japanese text and read it with every word coloured by what Anki says you know.
 
-- [ ] Workspace: `crates/ankura-core` (no Tauri dependency), Tauri v2 shell, Svelte 5 UI.
-- [ ] Tokenizer: Sudachi core, mode C units with mode A parts (ADR 0008), behind the
+- [x] Workspace: `crates/ankura-core` (no Tauri dependency), Tauri v2 shell, Svelte 5 UI.
+- [x] Tokenizer: Sudachi core, mode C units with mode A parts (ADR 0008), behind the
       `Tokenizer` trait.
-- [ ] Text library: paste, title, list, open, delete. SQLite.
-- [ ] Reader: tokens as tappable spans, furigana on kanji (toggle), comfortable Japanese
+- [x] Text library: paste, title, list, open, delete. SQLite.
+- [x] Reader: tokens as tappable spans, furigana on kanji (toggle), comfortable Japanese
       typography.
-- [ ] AnkiConnect client (`AnkiSource` trait): decks, note types, fields, `findCards`,
-      `cardsInfo`, FSRS buckets via `prop:s`/`prop:r` searches.
-- [ ] Field-mapping screen: per note type, target field and optional reading field, with a live
+- [x] AnkiConnect client (`AnkiSource` trait): note types, fields, `findNotes`/`findCards`,
+      `notesInfo`, `getIntervals`, card state via `is:` searches and FSRS buckets via
+      `prop:s`/`prop:r` searches. (`cardsInfo` renders every card's HTML, too slow for a large
+      collection.)
+- [x] Field-mapping screen: per note type, target field and optional reading field, with a live
       preview of the normalized word and a count of failures.
-- [ ] Field normalization: HTML, furigana brackets, cloze, sound tags, lists.
-- [ ] Knowledge model: unknown / new / learning / known / fading per word key, highest card wins
+- [x] Field normalization: HTML, furigana brackets, cloze, sound tags, lists.
+- [x] Knowledge model: unknown / new / learning / known / fading per word key, highest card wins
       (architecture-options §3).
-- [ ] Coloured reader, plus a comprehension bar (share of known tokens) before and while reading.
-- [ ] Word popover: reading, dictionary gloss (JMdict), Anki card state, "I don't know this".
-- [ ] Telemetry: exposures (paragraph visible for 3 s) and lookups as events with a device ID.
-- [ ] First-run setup: download SudachiDict core and JMdict, connect to AnkiConnect.
+- [x] Coloured reader, plus a comprehension bar (share of known tokens) before and while reading.
+- [x] Word popover: reading, dictionary gloss (JMdict), Anki card state, "I don't know this".
+- [x] Telemetry: exposures (paragraph visible for 3 s) and lookups as events with a device ID.
+- [x] First-run setup: download SudachiDict core and JMdict, connect to AnkiConnect.
+
+Known gaps after M1, to pick up next:
+
+- [ ] Try it on the owner's real collection and texts; tune field suggestions and defaults.
+- [ ] The JMdict download (GitHub release) hasn't been run from the build environment, which
+      can't reach GitHub release downloads; importing a Yomitan zip is tested.
+- [ ] Phrase cards (several words in one field) are stored but not yet matched in the reader.
+- [ ] Basic function words (こと, とき, いつも) count as unknown until marked once.
+- [ ] Incremental Anki sync (`cardsModTime`) instead of a full re-read.
 
 ## M2: Generated texts
 
