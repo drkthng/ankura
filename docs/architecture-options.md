@@ -336,6 +336,6 @@ These are throwaway tests, run after the owner approves the architecture:
 |---|---|---|
 | S1 | Tauri Android hello-world + AnkiDroid plugin: does the permission prompt work, does a `cards` query return FSRS columns? | Rows with `fsrs_stability` from a real AnkiDroid 2.25 install. |
 | S2 | AnkiDroid query speed on a large collection (the owner's, or a 50k-card test collection). | Full scan under 30 s, incremental `rated:N` under 2 s. |
-| S3 | Tokenizer comparison on 200 real sentences: Lindera+IPADIC, Lindera+UniDic, Sudachi core. | Lemma and reading accuracy; furigana derivable; APK size measured. |
+| S3 | Tokenizer comparison on 200 real sentences: Lindera+IPADIC, Lindera+UniDic, Sudachi core. | Lemma and reading accuracy; furigana derivable; APK size measured. **Done 2026-10-26** on a 150-sentence gold set: see `spikes/s3-tokenizers/REPORT.md`. On-device APK size is still open (S1). |
 | S4 | Field normalization on an export of the owner's collection: what share of notes per note type normalize cleanly? | Above 95% on the main note types, with failures listed. |
 | S5 | One generation round with the coverage check, against a real known-word set. | Coverage ≥ 0.95 within two retries on most requests. |
