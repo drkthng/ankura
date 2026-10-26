@@ -397,6 +397,10 @@ impl Store {
             )?;
             for (k, cs) in &by_key {
                 let (state, strength) = word_state(cs.iter().copied(), settings);
+                // Words whose cards don't count (all suspended) are the same as words without a card.
+                if state == WordState::Unknown {
+                    continue;
+                }
                 ins.execute(params![k.lang, k.lemma, k.reading, state.as_str(), strength, cs.len() as i64])?;
             }
         }

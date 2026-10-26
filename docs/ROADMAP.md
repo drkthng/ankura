@@ -31,7 +31,8 @@ Paste a Japanese text and read it with every word coloured by what Anki says you
 
 Known gaps after M1, to pick up next:
 
-- [ ] Try it on the owner's real collection and texts; tune field suggestions and defaults.
+- [x] Try it on the owner's real collection and texts; tune field suggestions and defaults
+      (sentence cards, unmarked sentences, light verbs, suspended cards, overdue recall without FSRS).
 - [ ] The JMdict download (GitHub release) hasn't been run from the build environment, which
       can't reach GitHub release downloads; importing a Yomitan zip is tested.
 - [ ] Phrase cards (several words in one field) are stored but not yet matched in the reader.

@@ -65,6 +65,16 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
                     outcome = FieldOutcome::Word;
                 }
             }
+            // A sentence with nothing marked whose reading field names one of its words
+            // (日本にはほとんど石油がありません + せきゆ): that word is the card's word.
+            many if hint.as_ref().is_some_and(|h| many.iter().filter(|t| t.lemma_reading == *h || t.reading == *h).count() == 1) => {
+                let h = hint.as_ref().unwrap();
+                let t = many.iter().find(|t| t.lemma_reading == *h || t.reading == *h).unwrap();
+                keys.push(WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() });
+                if outcome == FieldOutcome::Empty {
+                    outcome = FieldOutcome::Word;
+                }
+            }
             many => {
                 let reading = hint.unwrap_or_else(|| many.iter().map(|t| t.lemma_reading.as_str()).collect());
                 keys.push(WordKey { lang: tok.lang().into(), lemma: cand.text.clone(), reading });
@@ -548,6 +558,9 @@ mod tests {
         assert_eq!(k.outcome, FieldOutcome::Word, "{k:?}");
         let k = keys_for_note(t, &m, &fields("怒りを<b>あらわにする</b>。", "")).unwrap();
         assert_eq!(k.outcome, FieldOutcome::Word, "{k:?}");
+        // Nothing marked, but the reading field names the word.
+        let k = keys_for_note(t, &m, &fields("日本にはほとんど石油がありません。", "せきゆ")).unwrap();
+        assert_eq!(k.keys, vec![key("石油", "せきゆ")]);
         // A real phrase keeps its own key and adds its words.
         let k = keys_for_note(t, &m, &fields("ただの<b>脱水症状</b>だった。", "")).unwrap();
         assert_eq!(k.outcome, FieldOutcome::Phrase, "{k:?}");
@@ -604,7 +617,8 @@ mod tests {
         assert_eq!(state("犬", "いぬ"), Some(WordState::Learning));
         assert_eq!(state("鳥", "とり"), Some(WordState::New));
         assert_eq!(state("馬", "うま"), Some(WordState::Fading));
-        assert_eq!(state("牛", "うし"), Some(WordState::Unknown));
+        // Only suspended cards: treated like no card at all.
+        assert_eq!(state("牛", "うし"), None);
         // Not mapped.
         assert_eq!(state("魚", "さかな"), None);
 
