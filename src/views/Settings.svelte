@@ -3,7 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { api, type AiSettings, type Provider, type Status } from "../lib/api";
+  import { api, type AiMode, type AiSettings, type Provider, type Status } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
@@ -64,6 +64,7 @@
   let provider = $state<Provider>("anthropic");
   let model = $state("");
   let effort = $state("medium");
+  let mode = $state<AiMode>("chat");
   let key = $state("");
   let aiMessage = $state("");
   async function loadAi() {
@@ -71,6 +72,11 @@
     provider = ai.config.provider;
     model = ai.config.model;
     effort = ai.config.effort;
+    mode = ai.mode;
+  }
+  async function switchMode() {
+    await api.setSetting("ai_mode", mode);
+    await loadAi();
   }
   onMount(() => {
     loadAi().catch((e) => (error = String(e)));
@@ -149,11 +155,27 @@
 
   <section class="card">
     <h2>AI for “Write for me”</h2>
-    <p class="muted">
-      Texts are written by an AI model you pay for with your own API key. A short text costs a few cents. The key is
-      stored in your system's keychain, not in Ankura's files.
-    </p>
     <div class="grid">
+      <label for="mode">How Ankura asks the AI</label>
+      <select id="mode" bind:value={mode} onchange={switchMode}>
+        <option value="api">Automatically, with an API key</option>
+        <option value="chat">Copy &amp; paste through claude.ai</option>
+      </select>
+    </div>
+    {#if mode === "chat"}
+      <p class="muted">
+        Ankura gives you a request to paste into claude.ai, and you paste Claude's reply back. No key needed; it uses
+        your Claude subscription.
+      </p>
+    {:else}
+      <p class="muted">
+        Ankura asks the AI itself and checks the result. API use is billed per text (a few cents), separately from a
+        Claude subscription, but Claude Max and Team plans include monthly API credits: claim them at
+        console.anthropic.com and create a key there. The key is stored in your system's keychain, not in Ankura's
+        files.
+      </p>
+    {/if}
+    <div class="grid" class:hidden={mode === "chat"}>
       <label for="prov">Provider</label>
       <select id="prov" bind:value={provider} onchange={switchProvider}>
         <option value="anthropic">Anthropic (Claude)</option>
@@ -185,7 +207,7 @@
         </select>
       {/if}
     </div>
-    <div class="row">
+    <div class="row" class:hidden={mode === "chat"}>
       <button class="primary" onclick={saveAi}>Save</button>
       {#if aiMessage}<span class="muted">{aiMessage}</span>{/if}
       {#if provider === "anthropic"}
@@ -245,5 +267,8 @@
   }
   .small {
     font-size: 0.8rem;
+  }
+  .hidden {
+    display: none;
   }
 </style>

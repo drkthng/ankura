@@ -1,6 +1,6 @@
 # 0011. AI texts without API costs: copy & paste, Claude Code, free OpenRouter models
 
-- Status: accepted (owner, 2026-10-26); not yet built
+- Status: accepted (owner, 2026-10-26); option 1 built, options 2-3 on hold (see Update)
 - Date: 2026-10-26
 - Deciders: owner
 
@@ -47,3 +47,30 @@ Ankura talks to the AI"). When no API key is set, the default is copy & paste.
 - Copy & paste costs nothing extra and needs no setup, but every attempt takes manual steps.
 - Claude Code is automatic, but the owner has to install and log in to Claude Code.
 - The engine needs a JSON parser that tolerates fenced replies. Options 1 and 3 share it.
+
+## Update, 2026-10-26: Max plans include API credits
+
+Anthropic now gives Claude Max subscribers monthly API credits ($100 on Max 5x, $200 on Max 20x;
+expire each billing month, claimed by linking a Claude Console organization to the plan). They
+cover the Claude API, so the existing Anthropic provider costs the owner nothing within that
+budget. Sources: <https://support.claude.com/en/articles/17154008>,
+<https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers>.
+
+The owner chose: claim the credits and use the API key, and build copy & paste (option 1) as the
+no-setup fallback. Options 2 (Claude Code CLI) and 3 (free OpenRouter models) are on hold.
+
+Notes for option 2 if it comes back:
+
+- Checked with Claude Code 2.1.310: `claude -p --output-format json --json-schema '<schema>'
+  --tools "" --system-prompt '<system>' --model <model> --no-session-persistence
+  --setting-sources "" --strict-mcp-config` with the prompt on stdin works. The answer is in the
+  result's `structured_output` field; `is_error` and `result` carry failures.
+- Terms (support.claude.com article 15036540, updated 2026-10-07): `claude -p`, the Agent SDK and
+  third-party apps still draw from subscription limits; Anthropic paused a planned change to that
+  and says it will announce updates first.
+
+As built, option 1 is a mode, not a provider: Settings and the Write screen switch between
+"Automatically, with an API key" and "Copy & paste through claude.ai" (setting `ai_mode`; the
+default is copy & paste when no key is saved). The rewrite request for the same chat is only the
+feedback plus "answer with the JSON again", not the whole prompt. A reply with no JSON is read as
+plain text, with a `# Title` first line as the title.

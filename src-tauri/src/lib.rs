@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::generate::{self, GenerateRequest, GenerateResult};
+use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
 use ankura_core::mapping::{self, MappingPreview, Suggestion, SyncReport};
@@ -138,8 +138,17 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
 
 #[tauri::command]
 async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: [&str; 8] =
-        ["anki_url", "anki_query", "known_days", "fading_below", "count_suspended", "ai_provider", "ai_model", "ai_effort"];
+    const ALLOWED: [&str; 9] = [
+        "anki_url",
+        "anki_query",
+        "known_days",
+        "fading_below",
+        "count_suspended",
+        "ai_provider",
+        "ai_model",
+        "ai_effort",
+        "ai_mode",
+    ];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
@@ -361,6 +370,8 @@ async fn anki_sync(app: AppHandle) -> CmdResult<SyncReport> {
 struct AiSettings {
     config: LlmConfig,
     has_key: bool,
+    /// "api": Ankura calls the provider itself. "chat": copy & paste through claude.ai (ADR 0011).
+    mode: String,
 }
 
 #[tauri::command]
@@ -368,7 +379,12 @@ async fn ai_settings(app: AppHandle) -> CmdResult<AiSettings> {
     blocking(app, |s| {
         let config = s.llm_config();
         let has_key = secrets::api_key(config.provider)?.is_some();
-        Ok(AiSettings { config, has_key })
+        let mode = match s.setting("ai_mode").as_deref() {
+            Some(m @ ("api" | "chat")) => m.to_string(),
+            _ if has_key => "api".into(),
+            _ => "chat".into(),
+        };
+        Ok(AiSettings { config, has_key, mode })
     })
     .await
 }
@@ -413,6 +429,59 @@ async fn generate_text(app: AppHandle, request: GenerateRequest) -> CmdResult<Ge
         generate::generate_text(&store, tok.as_ref(), &llm, &request).map_err(err)
     })
     .await
+}
+
+// --- AI-written texts by copy & paste through claude.ai (ADR 0011) ---
+
+#[tauri::command]
+async fn chat_prompt(app: AppHandle, request: GenerateRequest) -> CmdResult<String> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let prep = generate::prepare(&s.store(), tok.as_ref(), &request).map_err(err)?;
+        Ok(generate::chat_prompt(&prep))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn chat_submit(
+    app: AppHandle,
+    request: GenerateRequest,
+    answer: String,
+    attempts: usize,
+    keep: bool,
+) -> CmdResult<ChatOutcome> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        generate::submit_answer(&s.store(), tok.as_ref(), &request, &answer, attempts, keep).map_err(err)
+    })
+    .await
+}
+
+/// Opens claude.ai in the default browser. The URL is fixed, so nothing user-supplied reaches the shell.
+#[tauri::command]
+fn open_claude_ai() -> CmdResult<()> {
+    const URL: &str = "https://claude.ai/new";
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", URL]).creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(URL);
+        c
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(URL);
+        c
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the browser ({e}); go to {URL} yourself"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -460,6 +529,9 @@ pub fn run() {
             set_api_key,
             study_words,
             generate_text,
+            chat_prompt,
+            chat_submit,
+            open_claude_ai,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ankura");

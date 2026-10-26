@@ -87,18 +87,34 @@ fn schema() -> Value {
     })
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct Draft {
-    title: String,
-    paragraphs: Vec<String>,
-    examples: Vec<Example>,
+/// The model's answer: a title, the text, and example sentences.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Draft {
+    #[serde(default)]
+    pub title: String,
+    pub paragraphs: Vec<String>,
+    #[serde(default)]
+    pub examples: Vec<Example>,
 }
 
-#[derive(Debug, Clone)]
-struct Check {
-    coverage: f64,
-    missing: Vec<String>,
-    unknown: Vec<String>,
+impl Draft {
+    fn body(&self) -> String {
+        self.paragraphs.iter().map(|p| p.trim()).filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n\n")
+    }
+}
+
+/// How a draft did: coverage, targets it doesn't use, and the unknown words it does.
+#[derive(Debug, Clone, Serialize)]
+pub struct Check {
+    pub coverage: f64,
+    pub missing: Vec<String>,
+    pub unknown: Vec<String>,
+}
+
+impl Check {
+    pub fn good(&self) -> bool {
+        self.coverage >= TARGET_COVERAGE && self.missing.is_empty()
+    }
 }
 
 /// Coverage of a text, counting target words as covered, and which targets are missing.
@@ -154,8 +170,15 @@ fn user_prompt(req: &GenerateRequest, known: &[String], fading: &[String]) -> St
     p
 }
 
-/// Writes a text, checks it, retries with feedback, and saves the best attempt to the library.
-pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &GenerateRequest) -> Result<GenerateResult> {
+/// A request worked out once: cleaned targets, the lemmas each one counts as, and the prompt.
+pub struct Prepared {
+    pub req: GenerateRequest,
+    target_lemmas: Vec<(String, HashSet<String>)>,
+    pub prompt: String,
+    lang: String,
+}
+
+pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Result<Prepared> {
     let targets: Vec<String> = req.targets.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
     if targets.is_empty() {
         return Err(Error::Llm("pick at least one target word".into()));
@@ -167,8 +190,8 @@ pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &Ge
         lemmas.insert(t.clone());
         target_lemmas.push((t.clone(), lemmas));
     }
-    let lang = tok.lang();
-    let known = store.known_lemmas(lang, KNOWN_SAMPLE)?;
+    let lang = tok.lang().to_string();
+    let known = store.known_lemmas(&lang, KNOWN_SAMPLE)?;
     let fading: Vec<String> = store
         .study_words(30)?
         .into_iter()
@@ -176,62 +199,168 @@ pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &Ge
         .take(8)
         .map(|w| w.key.lemma)
         .collect();
-    let req = GenerateRequest { targets: targets.clone(), ..req.clone() };
-    let base_prompt = user_prompt(&req, &known, &fading);
+    let req = GenerateRequest { targets, ..req.clone() };
+    let prompt = user_prompt(&req, &known, &fading);
+    Ok(Prepared { req, target_lemmas, prompt, lang })
+}
 
-    let mut best: Option<(Draft, Check)> = None;
-    let mut attempts = 0;
-    let mut prompt = base_prompt.clone();
-    while attempts < MAX_ATTEMPTS {
-        attempts += 1;
-        let draft: Draft = serde_json::from_value(llm.json(SYSTEM, &prompt, &schema())?)
-            .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
-        let text = draft.paragraphs.join("\n\n");
-        let c = check(store, tok, &text, &target_lemmas)?;
-        let good = c.coverage >= TARGET_COVERAGE && c.missing.is_empty();
-        let better = best.as_ref().is_none_or(|(_, b)| (c.missing.len(), -c.coverage) < (b.missing.len(), -b.coverage));
-        if better {
-            best = Some((draft.clone(), c.clone()));
-        }
-        if good {
-            break;
-        }
-        let mut feedback = format!(
-            "{base_prompt}\nYour previous version:\n{text}\n\nIt reached {:.0}% known words; it needs at least {:.0}%.",
-            c.coverage * 100.0,
-            TARGET_COVERAGE * 100.0
-        );
-        if !c.unknown.is_empty() {
-            feedback.push_str(&format!(
-                " Replace these words the learner doesn't know with simpler known words: {}.",
-                c.unknown.iter().take(40).cloned().collect::<Vec<_>>().join("、")
-            ));
-        }
-        if !c.missing.is_empty() {
-            feedback.push_str(&format!(" It doesn't use these target words; use each of them: {}.", c.missing.join("、")));
-        }
-        feedback.push_str(" Rewrite the whole text.");
-        prompt = feedback;
+pub fn check_draft(store: &Store, tok: &dyn Tokenizer, prep: &Prepared, draft: &Draft) -> Result<Check> {
+    check(store, tok, &draft.body(), &prep.target_lemmas)
+}
+
+/// What to fix, for the rewrite request.
+pub fn feedback(c: &Check) -> String {
+    let mut f = format!(
+        "It reached {:.0}% known words; it needs at least {:.0}%.",
+        c.coverage * 100.0,
+        TARGET_COVERAGE * 100.0
+    );
+    if !c.unknown.is_empty() {
+        f.push_str(&format!(
+            " Replace these words the learner doesn't know with simpler known words: {}.",
+            c.unknown.iter().take(40).cloned().collect::<Vec<_>>().join("、")
+        ));
     }
+    if !c.missing.is_empty() {
+        f.push_str(&format!(" It doesn't use these target words; use each of them: {}.", c.missing.join("、")));
+    }
+    f.push_str(" Rewrite the whole text.");
+    f
+}
 
-    let (draft, c) = best.expect("at least one attempt");
-    let body = draft.paragraphs.join("\n\n");
+/// Saves a draft to the library.
+pub fn save(store: &Store, prep: &Prepared, draft: &Draft, c: &Check, attempts: usize) -> Result<GenerateResult> {
+    let targets = &prep.req.targets;
     let extra = json!({
         "targets": targets,
-        "topic": req.topic,
+        "topic": prep.req.topic,
         "coverage": c.coverage,
         "attempts": attempts,
         "examples": draft.examples,
     });
     let title = if draft.title.trim().is_empty() { targets.join("・") } else { draft.title.trim().to_string() };
-    let text = store.add_text_with_extra(lang, &title, &body, "generated", Some(&extra))?;
+    let text = store.add_text_with_extra(&prep.lang, &title, &draft.body(), "generated", Some(&extra))?;
     Ok(GenerateResult {
         text,
         coverage: c.coverage,
         attempts,
+        missing_targets: c.missing.clone(),
+        unknown_words: c.unknown.clone(),
+        examples: draft.examples.clone(),
+    })
+}
+
+/// Writes a text, checks it, retries with feedback, and saves the best attempt to the library.
+pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &GenerateRequest) -> Result<GenerateResult> {
+    let prep = prepare(store, tok, req)?;
+    let mut best: Option<(Draft, Check)> = None;
+    let mut attempts = 0;
+    let mut prompt = prep.prompt.clone();
+    while attempts < MAX_ATTEMPTS {
+        attempts += 1;
+        let draft: Draft = serde_json::from_value(llm.json(SYSTEM, &prompt, &schema())?)
+            .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
+        let c = check_draft(store, tok, &prep, &draft)?;
+        let good = c.good();
+        let better = best.as_ref().is_none_or(|(_, b)| (c.missing.len(), -c.coverage) < (b.missing.len(), -b.coverage));
+        if !good {
+            prompt = format!("{}\nYour previous version:\n{}\n\n{}", prep.prompt, draft.body(), feedback(&c));
+        }
+        if better {
+            best = Some((draft, c));
+        }
+        if good {
+            break;
+        }
+    }
+    let (draft, c) = best.expect("at least one attempt");
+    save(store, &prep, &draft, &c, attempts)
+}
+
+// --- Copy & paste through claude.ai (ADR 0011) ---
+
+const ANSWER_FORMAT: &str = "Answer with only a JSON object in this shape, with nothing before or after it:
+{\"title\": \"a short Japanese title\", \"paragraphs\": [\"first paragraph\", \"second paragraph\"], \"examples\": [{\"word\": \"a target word\", \"sentence\": \"an example sentence\", \"translation\": \"its English translation\"}]}";
+
+/// The whole request to paste into a chat: instructions, the prompt, and the answer format.
+pub fn chat_prompt(prep: &Prepared) -> String {
+    format!("{SYSTEM}\n\n{}\n{ANSWER_FORMAT}", prep.prompt)
+}
+
+/// The follow-up to paste into the same chat when a draft isn't good enough.
+pub fn chat_rewrite(c: &Check) -> String {
+    format!("{}\n\nAnswer with only the JSON object again, in the same shape.", feedback(c))
+}
+
+/// Reads a pasted reply: JSON, possibly in a ```json fence or with text around it. A reply
+/// without JSON counts as the text itself, with a `# Title` first line as its title.
+pub fn parse_answer(answer: &str) -> Result<Draft> {
+    let answer = answer.trim();
+    if let (Some(start), Some(end)) = (answer.find('{'), answer.rfind('}')) {
+        if start < end {
+            let mut v: Value = serde_json::from_str(&answer[start..=end])
+                .map_err(|e| Error::Llm(format!("the reply looks like JSON but can't be read ({e}); copy the whole reply")))?;
+            // A single string instead of a list of paragraphs.
+            if let Some(s) = v["paragraphs"].as_str() {
+                v["paragraphs"] = json!(s.split("\n\n").collect::<Vec<_>>());
+            }
+            return serde_json::from_value(v)
+                .map_err(|e| Error::Llm(format!("the reply doesn't have the expected shape: {e}")));
+        }
+    }
+    let mut lines = answer.lines().peekable();
+    let title = match lines.peek() {
+        Some(l) if l.starts_with('#') => {
+            let t = l.trim_start_matches('#').trim().to_string();
+            lines.next();
+            t
+        }
+        _ => String::new(),
+    };
+    let body = lines.collect::<Vec<_>>().join("\n");
+    let paragraphs: Vec<String> =
+        body.split("\n\n").map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+    if paragraphs.is_empty() {
+        return Err(Error::Llm("paste Claude's reply first".into()));
+    }
+    Ok(Draft { title, paragraphs, examples: vec![] })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatOutcome {
+    pub coverage: f64,
+    pub missing_targets: Vec<String>,
+    pub unknown_words: Vec<String>,
+    /// The follow-up to paste when the draft isn't good enough and wasn't saved.
+    pub rewrite: Option<String>,
+    /// The saved text, when the draft was good enough or the user chose to keep it.
+    pub saved: Option<GenerateResult>,
+}
+
+/// Checks a pasted reply; saves it when it's good enough or `keep` is set, otherwise returns the
+/// rewrite request.
+pub fn submit_answer(
+    store: &Store,
+    tok: &dyn Tokenizer,
+    req: &GenerateRequest,
+    answer: &str,
+    attempts: usize,
+    keep: bool,
+) -> Result<ChatOutcome> {
+    let prep = prepare(store, tok, req)?;
+    let draft = parse_answer(answer)?;
+    let c = check_draft(store, tok, &prep, &draft)?;
+    let (rewrite, saved) = if c.good() || keep {
+        (None, Some(save(store, &prep, &draft, &c, attempts)?))
+    } else {
+        (Some(chat_rewrite(&c)), None)
+    };
+    Ok(ChatOutcome {
+        coverage: c.coverage,
         missing_targets: c.missing,
         unknown_words: c.unknown,
-        examples: draft.examples,
+        rewrite,
+        saved,
     })
 }
 
@@ -328,6 +457,52 @@ mod tests {
         assert_eq!(s.open_text(&r.text.id).unwrap().unwrap().body, "猫と石油を分析した。");
         assert!(r.coverage < TARGET_COVERAGE && r.missing_targets.is_empty(), "{r:?}");
         assert!(llm.prompts.lock().unwrap()[0].contains("です/ます"));
+    }
+
+    #[test]
+    fn parses_pasted_replies_leniently() {
+        let fenced = "Here it is:\n```json\n{\"title\": \"猫\", \"paragraphs\": [\"一。\", \"二。\"], \"examples\": []}\n```\nEnjoy!";
+        let d = parse_answer(fenced).unwrap();
+        assert_eq!((d.title.as_str(), d.paragraphs.len()), ("猫", 2));
+
+        let one_string = "{\"title\": \"t\", \"paragraphs\": \"一。\\n\\n二。\"}";
+        assert_eq!(parse_answer(one_string).unwrap().paragraphs, vec!["一。", "二。"]);
+
+        let plain = "# 猫の日\n\n猫が好きだ。\n\n毎日見る。\n";
+        let d = parse_answer(plain).unwrap();
+        assert_eq!(d.title, "猫の日");
+        assert_eq!(d.paragraphs, vec!["猫が好きだ。", "毎日見る。"]);
+
+        assert!(parse_answer("  ").is_err());
+        assert!(parse_answer("{\"title\": oops}").unwrap_err().to_string().contains("JSON"));
+    }
+
+    #[test]
+    fn chat_flow_asks_for_a_rewrite_then_saves() {
+        let Some(t) = sudachi() else { return };
+        let s = store_with_known(&[("猫", "ねこ"), ("好き", "すき"), ("毎日", "まいにち"), ("見る", "みる"), ("日本", "にっぽん")]);
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false };
+
+        let prompt = chat_prompt(&prepare(&s, t, &req).unwrap());
+        assert!(prompt.contains("comprehensible input") && prompt.contains("Target words: 石油") && prompt.contains("\"paragraphs\""));
+
+        let weak = draft(&["猫が好きだ。毎日、猫を観察する。"]).to_string();
+        let r = submit_answer(&s, t, &req, &weak, 1, false).unwrap();
+        assert!(r.saved.is_none());
+        let rewrite = r.rewrite.unwrap();
+        assert!(rewrite.contains("観察") && rewrite.contains("石油") && rewrite.contains("JSON"), "{rewrite}");
+        assert!(s.list_texts().unwrap().is_empty());
+
+        let good = format!("```json\n{}\n```", draft(&["猫が好きだ。", "毎日、日本の石油を見る。"]));
+        let r = submit_answer(&s, t, &req, &good, 2, false).unwrap();
+        let saved = r.saved.unwrap();
+        assert_eq!(saved.attempts, 2);
+        assert!(r.rewrite.is_none());
+
+        // "Use it anyway" keeps a weak draft.
+        let r = submit_answer(&s, t, &req, &weak, 3, true).unwrap();
+        assert!(r.saved.is_some() && r.coverage < TARGET_COVERAGE);
+        assert_eq!(s.list_texts().unwrap().len(), 2);
     }
 
     #[test]

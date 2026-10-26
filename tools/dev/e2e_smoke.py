@@ -258,6 +258,40 @@ def main():
         time.sleep(0.5)
         d.shot(out / "10-generated.png")
         assert len(d.invoke("list_texts")) == 2
+
+        # Copy & paste through claude.ai: a weak reply gets a rewrite request, a good one opens.
+        sys.path.insert(0, str(HERE))
+        from fake_llm import draft
+
+        d.click("//nav//button[normalize-space()='Write for me']")
+        d.click("//button[@role='radio' and contains(., 'Copy')]")
+        d.type("//input[contains(@class,'typed')]", "傘")
+        d.click("//button[normalize-space()='Get the request']")
+        d.find("//summary[contains(., 'Show the request')]")
+        prompt = d.js("return document.querySelector('.chat details textarea').value")
+        assert "Target words: 傘" in prompt and '"paragraphs"' in prompt, prompt[:300]
+        paste = (
+            "const [v] = arguments; const t = document.querySelector('textarea.answer');"
+            "t.value = v; t.dispatchEvent(new Event('input', {bubbles: true}));"
+        )
+        weak = {"title": "経済", "paragraphs": ["経済学者が量子力学と傘の相関を分析した。"], "examples": []}
+        d.js(paste, "Sure! Here it is:\n```json\n" + json.dumps(weak, ensure_ascii=False) + "\n```")
+        d.click("//button[normalize-space()='Check it']")
+        verdict = d.text("//p[contains(@class,'verdict')]")
+        print("chat verdict:", verdict)
+        assert "95%" in verdict, verdict
+        d.find("//button[contains(., 'Copy the rewrite request')]")
+        d.shot(out / "11-chat-rewrite.png")
+        d.js(paste, "```json\n" + json.dumps(draft(prompt), ensure_ascii=False) + "\n```")
+        d.click("//button[normalize-space()='Check it']")
+        if d.js("return !!document.querySelector('p.verdict') && !document.querySelector('p.written')"):
+            print("good reply still under 95%:", d.text("//p[contains(@class,'verdict')]"))
+            d.click("//button[contains(., 'Use this version anyway')]")
+        written = d.text("//p[contains(@class,'written')]", timeout=30)
+        assert "傘" in written, written
+        time.sleep(0.5)
+        d.shot(out / "12-chat-saved.png")
+        assert len(d.invoke("list_texts")) == 3
         print("OK")
     except Exception:
         if d:

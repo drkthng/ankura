@@ -148,9 +148,13 @@ export interface LlmConfig {
   effort: string;
 }
 
+export type AiMode = "api" | "chat";
+
 export interface AiSettings {
   config: LlmConfig;
   has_key: boolean;
+  /** "api": Ankura calls the AI itself. "chat": copy & paste through claude.ai. */
+  mode: AiMode;
 }
 
 export interface StudyWord {
@@ -181,6 +185,15 @@ export interface GenerateResult {
   missing_targets: string[];
   unknown_words: string[];
   examples: Example[];
+}
+
+export interface ChatOutcome {
+  coverage: number;
+  missing_targets: string[];
+  unknown_words: string[];
+  /** The follow-up to paste when the reply wasn't good enough (and wasn't saved). */
+  rewrite: string | null;
+  saved: GenerateResult | null;
 }
 
 export interface TextExtra {
@@ -229,6 +242,10 @@ export const api = {
   setApiKey: (provider: Provider, key: string) => invoke<void>("set_api_key", { provider, key }),
   studyWords: () => invoke<StudyWord[]>("study_words"),
   generateText: (request: GenerateRequest) => invoke<GenerateResult>("generate_text", { request }),
+  chatPrompt: (request: GenerateRequest) => invoke<string>("chat_prompt", { request }),
+  chatSubmit: (request: GenerateRequest, answer: string, attempts: number, keep: boolean) =>
+    invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),
+  openClaudeAi: () => invoke<void>("open_claude_ai"),
 };
 
 export const keyId = (k: WordKey) => `${k.lang}\u0001${k.lemma}\u0001${k.reading}`;

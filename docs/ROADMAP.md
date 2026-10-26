@@ -46,6 +46,7 @@ Known gaps after M1, to pick up next:
       check and retries (architecture-options §6). Target suggestions: looked-up, fading, learning
       and new words.
 - [x] Example sentences for target words.
+- [x] Copy & paste through claude.ai, no API key needed (ADR 0011).
 - [x] Show words in the spelling the user knows (card or text), not the normalized key.
 - [ ] "Simplify this sentence".
 

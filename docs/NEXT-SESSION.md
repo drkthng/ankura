@@ -55,7 +55,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `dict.rs` | Yomitan zip import (plain and structured-content glossaries), lookup by spelling or reading |
 | `reader.rs` | Text → paragraphs of tokens with furigana, state (mark > anki > basic word > parts), coverage |
 | `llm.rs` | Anthropic Messages (raw HTTPS, `anthropic-version: 2026-10-21`, `output_config` format+effort, `fallbacks: "default"`) and OpenRouter |
-| `generate.rs` | Prompt, coverage check (95%), retries with feedback, best attempt saved |
+| `generate.rs` | `prepare` / `check_draft` / `feedback` / `save`, shared by the automatic loop (`generate_text`: retries, best attempt saved) and copy & paste (`chat_prompt`, `parse_answer` lenient, `submit_answer`) |
 | `anki.rs` | `AnkiSource` trait, AnkiConnect client, in-process fake for tests |
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
@@ -100,10 +100,11 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 
 ## 5. Next steps, in order
 
-1. **Owner has no API key and won't pay for API use (Claude Max 20x subscription instead).**
-   Build ADR 0011 in this order: copy & paste via claude.ai (default when no key), then Claude
-   Code CLI, then free OpenRouter models. Push, wait for the Build workflow, and give the owner
-   the Windows artifact link. Then help with their first real run.
+1. **First real run.** The owner's Max plan includes $200/month of API credits (ADR 0011,
+   Update); they claimed them and have an Anthropic API key, which goes into Settings. Copy &
+   paste through claude.ai is built as the fallback (setting `ai_mode`; `chat_prompt`,
+   `chat_submit` in `generate.rs`). Claude Code CLI and free OpenRouter models are on hold. Help
+   with the first real run.
    Likely issues: error messages from the real API, prompt quality, texts landing under 95%
    coverage for their small known-word set (~1,600 words); tune the prompt or the threshold
    (`TARGET_COVERAGE` in `generate.rs`).
