@@ -20,6 +20,8 @@ Paste a Japanese text and read it with every word coloured by what Anki says you
 - [x] Field-mapping screen: per note type, target field and optional reading field, with a live
       preview of the normalized word and a count of failures.
 - [x] Field normalization: HTML, furigana brackets, cloze, sound tags, lists.
+- [x] Sentence cards: the word is the bold/italic/underlined part of a sentence field; the reading
+      field's first line is its reading. "Suggest fields" detects this from the notes.
 - [x] Knowledge model: unknown / new / learning / known / fading per word key, highest card wins
       (architecture-options §3).
 - [x] Coloured reader, plus a comprehension bar (share of known tokens) before and while reading.

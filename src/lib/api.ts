@@ -93,11 +93,20 @@ export interface WordInfo {
   stats: { exposures: number; lookups: number };
 }
 
+export type TargetMode = "field" | "marked";
+
 export interface NoteTypeMapping {
   model_id: number;
   model_name: string;
   target_field: string;
   reading_field: string | null;
+  /** "field": the whole field is the word. "marked": the bold/italic part of the field is. */
+  target_mode: TargetMode;
+}
+
+export interface Suggestion {
+  mapping: NoteTypeMapping;
+  reason: string;
 }
 
 export interface NoteType {
@@ -154,6 +163,8 @@ export const api = {
   ankiCheck: () => invoke<number>("anki_check"),
   ankiNoteTypes: () => invoke<NoteType[]>("anki_note_types"),
   ankiPreview: (mapping: NoteTypeMapping) => invoke<MappingPreview>("anki_preview", { mapping }),
+  ankiSuggest: (modelId: number, modelName: string, fields: string[]) =>
+    invoke<Suggestion | null>("anki_suggest", { modelId, modelName, fields }),
   saveMapping: (mapping: NoteTypeMapping) => invoke<void>("save_mapping", { mapping }),
   deleteMapping: (modelId: number) => invoke<void>("delete_mapping", { modelId }),
   ankiSync: () => invoke<SyncReport>("anki_sync"),

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type MappingPreview, type NoteType, type Status, type SyncReport } from "../lib/api";
+  import { api, type MappingPreview, type NoteType, type Status, type SyncReport, type TargetMode } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
@@ -13,7 +13,15 @@
   let loadingTypes = $state(false);
 
   // Per note type: the fields being edited, and the latest preview.
-  type Draft = { target: string; reading: string; preview: MappingPreview | null; busy: boolean; error: string };
+  type Draft = {
+    target: string;
+    mode: TargetMode;
+    reading: string;
+    preview: MappingPreview | null;
+    reason: string;
+    busy: boolean;
+    error: string;
+  };
   let drafts = $state<Record<number, Draft>>({});
 
   let syncing = $state(false);
@@ -26,20 +34,6 @@
       query = status.anki_query;
     }
   });
-
-  const WORD_FIELDS = ["expression", "vocab", "vocabkanji", "word", "単語", "語彙", "kanji", "front", "表面", "term", "japanese"];
-  const READING_FIELDS = ["reading", "vocabkana", "kana", "読み", "よみ", "furigana", "hiragana"];
-  function guess(fields: string[], names: string[]): string {
-    for (const n of names) {
-      const f = fields.find((x) => x.toLowerCase().replace(/[\s_-]/g, "") === n);
-      if (f) return f;
-    }
-    for (const n of names) {
-      const f = fields.find((x) => x.toLowerCase().includes(n));
-      if (f) return f;
-    }
-    return "";
-  }
 
   async function connect() {
     connecting = true;
@@ -64,8 +58,10 @@
       for (const nt of noteTypes) {
         d[nt.id] = {
           target: nt.mapping?.target_field ?? "",
+          mode: nt.mapping?.target_mode ?? "field",
           reading: nt.mapping?.reading_field ?? "",
           preview: null,
+          reason: "",
           busy: false,
           error: "",
         };
@@ -85,6 +81,7 @@
     model_name: nt.name,
     target_field: drafts[nt.id].target,
     reading_field: drafts[nt.id].reading || null,
+    target_mode: drafts[nt.id].mode,
   });
 
   async function preview(nt: NoteType) {
@@ -121,10 +118,27 @@
     onchange();
   }
 
-  function suggest(nt: NoteType) {
-    drafts[nt.id].target = guess(nt.fields, WORD_FIELDS);
-    drafts[nt.id].reading = guess(nt.fields, READING_FIELDS);
-    if (drafts[nt.id].target) preview(nt);
+  /** Asks Ankura to look at a sample of the notes and propose fields. Nothing is saved. */
+  async function suggest(nt: NoteType) {
+    const d = drafts[nt.id];
+    d.busy = true;
+    d.error = "";
+    try {
+      const s = await api.ankiSuggest(nt.id, nt.name, nt.fields);
+      if (!s) {
+        d.reason = "Couldn't find a field with Japanese words in this note type. Pick one yourself, or leave it unmapped.";
+        return;
+      }
+      d.target = s.mapping.target_field;
+      d.mode = s.mapping.target_mode;
+      d.reading = s.mapping.reading_field ?? "";
+      d.reason = s.reason;
+    } catch (e) {
+      d.error = String(e);
+    } finally {
+      d.busy = false;
+    }
+    if (d.target) await preview(nt);
   }
 
   async function sync() {
@@ -143,7 +157,25 @@
   }
 
   const dirty = (nt: NoteType) =>
-    (nt.mapping?.target_field ?? "") !== drafts[nt.id]?.target || (nt.mapping?.reading_field ?? "") !== drafts[nt.id]?.reading;
+    (nt.mapping?.target_field ?? "") !== drafts[nt.id]?.target ||
+    (nt.mapping?.reading_field ?? "") !== drafts[nt.id]?.reading ||
+    (nt.mapping?.target_mode ?? "field") !== drafts[nt.id]?.mode;
+  /** A field value as plain-text pieces, with bold/italic/underlined parts flagged (never rendered as HTML). */
+  function pieces(html: string): { text: string; marked: boolean }[] {
+    const decode = (t: string) =>
+      t.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    const out: { text: string; marked: boolean }[] = [];
+    const re = /<(b|strong|i|em|u)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+    let last = 0;
+    for (const m of html.matchAll(re)) {
+      out.push({ text: decode(html.slice(last, m.index)), marked: false });
+      out.push({ text: decode(m[2]), marked: true });
+      last = m.index! + m[0].length;
+    }
+    out.push({ text: decode(html.slice(last)), marked: false });
+    return out.filter((p) => p.text);
+  }
+
   const mappedCount = $derived(noteTypes.filter((n) => n.mapping).length);
   const pct = (n: number, d: number) => (d ? Math.round((100 * n) / d) : 0);
 </script>
@@ -172,8 +204,10 @@
     <section class="card">
       <h2>2. Which field holds the word?</h2>
       <p class="muted">
-        For each note type with Japanese words, pick the field that holds the word, and the reading field if there is
-        one. Preview shows what Ankura makes of a sample of your notes. Note types you leave unmapped are skipped.
+        For each note type with Japanese words, tell Ankura where the word is: a field of its own, or the bold or
+        italic part of a sentence field. Add the reading field if there is one (Ankura takes its first line).
+        <strong>Suggest fields</strong> looks at your notes and proposes this; Preview shows the result on a sample.
+        Nothing is saved until you click Save. Note types you leave unmapped are skipped.
       </p>
       {#if loadingTypes}<p class="muted">Loading note types…</p>{/if}
       <div class="types">
@@ -187,10 +221,14 @@
                   <span class="muted">{nt.notes.toLocaleString()} notes</span>
                   {#if nt.mapping}<span class="pill mapped-pill">mapped</span>{/if}
                 </div>
-                {#if !d.target}<button class="ghost" onclick={() => suggest(nt)}>Suggest fields</button>{/if}
+                <button class="ghost" onclick={() => suggest(nt)} disabled={d.busy}>Suggest fields</button>
               </div>
               <div class="row">
                 <label>Word
+                  <select bind:value={d.mode} disabled={!d.target} title="Where in the field the word is">
+                    <option value="field">is the whole field</option>
+                    <option value="marked">is the bold/italic part of</option>
+                  </select>
                   <select bind:value={d.target}>
                     <option value="">— not mapped —</option>
                     {#each nt.fields as f}<option value={f}>{f}</option>{/each}
@@ -206,6 +244,7 @@
                 <button class="primary" onclick={() => save(nt)} disabled={!d.target || !dirty(nt)}>Save</button>
                 {#if nt.mapping}<button class="ghost danger" onclick={() => unmap(nt)}>Unmap</button>{/if}
               </div>
+              {#if d.reason}<p class="muted reason">{d.reason}</p>{/if}
               {#if d.error}<p class="error">{d.error}</p>{/if}
               {#if d.preview}
                 {@const p = d.preview}
@@ -219,8 +258,10 @@
                     <tbody>
                       {#each p.examples as ex}
                         <tr class={ex.outcome}>
-                          <td class="field" title={ex.field}>{ex.field.replace(/<[^>]*>/g, "").slice(0, 40) || "(empty)"}</td>
-                          <td>→</td>
+                          <td class="field">
+                            {#each pieces(ex.field) as p}{#if p.marked}<mark>{p.text}</mark>{:else}{p.text}{/if}{:else}(empty){/each}
+                          </td>
+                          <td class="arrow">→</td>
                           <td class="keys">
                             {#each ex.keys as k}<span class="key">{k.lemma}<small>{k.reading}</small></span>{/each}
                             {#if ex.outcome !== "word"}<span class="pill">{ex.outcome}</span>{/if}
@@ -323,6 +364,10 @@
     font-size: 0.9rem;
     color: var(--muted);
   }
+  .reason {
+    margin: 0;
+    font-size: 0.88rem;
+  }
   .preview {
     background: var(--surface-2);
     border-radius: 8px;
@@ -342,10 +387,18 @@
   }
   td.field {
     font-family: var(--font-read);
-    white-space: nowrap;
-    max-width: 18rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    width: 60%;
+  }
+  td.field mark {
+    background: var(--st-learning-bg);
+    color: inherit;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 0 0.1em;
+  }
+  td.arrow {
+    width: 1.5rem;
+    color: var(--muted);
   }
   .key {
     font-family: var(--font-read);

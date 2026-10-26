@@ -13,6 +13,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VOCAB = ("日本語コア", 1001, ["Vocab", "Reading", "Meaning", "Sentence"])
 KANJI = ("Kanji (RTK)", 1002, ["Kanji", "Keyword"])
+# Sentence cards: the word is marked in the sentence, the reading field starts with the word's reading.
+SENTENCES = ("Satzkarten", 1003, ["Original sentence", "Reading", "Definition"])
+SENTENCE_NOTES = [
+    ("<b>長篠</b>の戦いは日本の歴史で有名です。", "ながしの<br>ながしのがたたかいはにっぽんのれきしでゆうめいです。", "Nagashino (place name)", 150.0),
+    ("今日はなんだか<b>気分</b>がいい。", "きぶん<br>きょうはなんだかきぶんがいい。", "mood", 120.0),
+    ("彼は急いで駅へ<i>向かった</i>。", "むかった<br>かれはいそいでえきへむかった。", "to head towards", 90.0),
+    ("<u>少し</u>だけ待ってください。", "すこし<br>すこしだけまってください。", "a little", 200.0),
+]
 
 # (vocab field, reading field, meaning, state) where state is new / learn / s:<stability>:<recall> /
 # ivl:<days> / suspended. Formatting varies on purpose, as in an old collection.
@@ -86,6 +94,11 @@ def build():
             card["stability"], card["recall"] = float(s), float(r)
             card["interval"] = int(float(s) * 0.9)
         notes.append({"id": nid, "model": VOCAB, "fields": [vocab, reading, meaning, ""], "cards": [card]})
+    for sentence, reading, meaning, s in SENTENCE_NOTES:
+        nid += 1
+        cid += 1
+        card = {"id": cid, "deck": "日本語::文", "flags": set(), "stability": s, "recall": 0.95, "interval": int(s)}
+        notes.append({"id": nid, "model": SENTENCES, "fields": [sentence, reading, meaning], "cards": [card]})
     for kanji, keyword, s in [("猫", "cat", 200.0), ("駅", "station", 90.0)]:
         nid += 1
         cid += 1
@@ -157,9 +170,9 @@ def act(action, p):
     if action == "version":
         return 6
     if action == "modelNamesAndIds":
-        return {VOCAB[0]: VOCAB[1], KANJI[0]: KANJI[1]}
+        return {m[0]: m[1] for m in (VOCAB, KANJI, SENTENCES)}
     if action == "modelFieldNames":
-        return next(m[2] for m in (VOCAB, KANJI) if m[0] == p["modelName"])
+        return next(m[2] for m in (VOCAB, KANJI, SENTENCES) if m[0] == p["modelName"])
     if action in ("findNotes", "findCards"):
         tree = parse(tokens(p["query"]))
         hits = [(n, c) for n in NOTES for c in n["cards"] if match(tree, n, c)]

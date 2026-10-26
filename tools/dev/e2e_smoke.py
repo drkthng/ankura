@@ -158,10 +158,24 @@ def main():
         d.shot(out / "02-anki-mapping.png")
         d.click("//div[contains(@class,'nt')][.//strong[text()='日本語コア']]//button[normalize-space()='Save']")
         d.find("//div[contains(@class,'nt')][.//strong[text()='日本語コア']]//span[normalize-space()='mapped']")
+        # Sentence cards: Suggest fields should find the marked word and the reading field.
+        nt = "//div[contains(@class,'nt')][.//strong[text()='Satzkarten']]"
+        d.click(nt + "//button[normalize-space()='Suggest fields']")
+        reason = d.text(nt + "//p[contains(@class,'reason')]")
+        print("suggestion:", reason)
+        assert "bold" in reason and "Reading" in reason, reason
+        sentence_preview = d.text(nt + "//div[contains(@class,'preview')]")
+        print("sentence preview:", sentence_preview.replace("\n", " | ")[:300])
+        assert "長篠" in sentence_preview and "向かう" in sentence_preview, sentence_preview
+        d.js("document.evaluate(arguments[0], document, null, 9, null).singleNodeValue.scrollIntoView({block: 'start'})", nt)
+        time.sleep(0.3)
+        d.shot(out / "02b-sentence-mapping.png")
+        d.click(nt + "//button[normalize-space()='Save']")
+        d.find(nt + "//span[normalize-space()='mapped']")
         d.click("//button[normalize-space()='Sync now']")
         report = d.text("//p[contains(., 'Read ') and contains(., 'cards')]", timeout=60)
         print("sync:", report)
-        assert "44 cards" in report and "FSRS is on" in report, report
+        assert "48 cards" in report and "FSRS is on" in report, report
         d.shot(out / "03-anki-synced.png")
 
         # Library: paste and read.
@@ -179,6 +193,8 @@ def main():
         fading = d.js("return [...document.querySelectorAll('.tok.st-fading')].map(e => e.textContent.trim())")
         print("known:", known[:12], "\nunknown:", unknown[:12], "\nfading:", fading)
         assert any("猫" in k for k in known), known
+        # From the sentence cards: marked words count as known.
+        assert any("気分" in k for k in known) and any("向か" in k for k in known), known
         assert any("降" in f for f in fading), fading  # 降る has recall 0.6
 
         # Popover on an unknown word, then "I don't know this".

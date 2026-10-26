@@ -1,15 +1,15 @@
 //! Anki note fields → word keys, the mapping preview, and the Anki sync that builds Ankura's
 //! knowledge table.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::anki::{AnkiSource, NoteInfo};
-use crate::kana::{is_all_kana, to_hiragana};
+use crate::kana::{has_kanji, is_all_kana, to_hiragana};
 use crate::knowledge::{CardFacts, KnowledgeSettings};
-use crate::normalize::clean_field;
-use crate::store::{NoteTypeMapping, Store};
+use crate::normalize::{clean_field, marked_text};
+use crate::store::{NoteTypeMapping, Store, TargetMode};
 use crate::tokenize::{TokenKind, Tokenizer};
 use crate::{Result, WordKey};
 
@@ -51,7 +51,9 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
                 // A reading given for the field only applies when the field is the word's own
                 // dictionary form (not e.g. a conjugated example).
                 let reading = match &hint {
-                    Some(h) if t.surface == cand.text && t.surface == t.dictionary_form => h.clone(),
+                    Some(h) if t.surface == cand.text && t.surface == t.dictionary_form && plausible_reading(h, &cand.text) => {
+                        h.clone()
+                    }
                     _ => t.lemma_reading.clone(),
                 };
                 keys.push(WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading });
@@ -71,6 +73,31 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
     let mut seen = HashSet::new();
     keys.retain(|k| seen.insert(k.clone()));
     Ok(FieldKeys { outcome, keys })
+}
+
+/// A reading for a word can't be much longer than the word (a whole-sentence reading isn't one),
+/// and has to end with the word's own trailing kana (食べる → …べる).
+fn plausible_reading(reading: &str, word: &str) -> bool {
+    let tail: String = to_hiragana(&word.chars().rev().take_while(|c| !crate::kana::is_kanji(*c)).collect::<String>())
+        .chars()
+        .rev()
+        .collect();
+    reading.chars().count() <= word.chars().count() * 4 + 2 && reading.ends_with(&tail)
+}
+
+/// The text a mapping takes the word from: the whole field, or its marked parts (one per line).
+fn target_text(mapping: &NoteTypeMapping, fields: &BTreeMap<String, String>) -> String {
+    let field = fields.get(&mapping.target_field).map(String::as_str).unwrap_or("");
+    match mapping.target_mode {
+        TargetMode::Field => field.to_string(),
+        TargetMode::Marked => marked_text(field).join("\n"),
+    }
+}
+
+/// Word keys for one note under a mapping.
+pub fn keys_for_note(tok: &dyn Tokenizer, mapping: &NoteTypeMapping, fields: &BTreeMap<String, String>) -> Result<FieldKeys> {
+    let reading = mapping.reading_field.as_ref().and_then(|f| fields.get(f)).map(String::as_str);
+    keys_for_field(tok, &target_text(mapping, fields), reading)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,9 +137,8 @@ pub fn preview_mapping(
     let mut p = MappingPreview { notes_total: ids.len(), sampled: notes.len(), words: 0, phrases: 0, empty: 0, examples: vec![] };
     let mut shown: HashMap<FieldOutcome, usize> = HashMap::new();
     for n in &notes {
-        let field = n.fields.get(&mapping.target_field).map(String::as_str).unwrap_or("");
-        let reading = mapping.reading_field.as_ref().and_then(|f| n.fields.get(f)).map(String::as_str);
-        let fk = keys_for_field(tok, field, reading)?;
+        let fk = keys_for_note(tok, mapping, &n.fields)?;
+        let field = n.fields.get(&mapping.target_field).cloned().unwrap_or_default();
         match fk.outcome {
             FieldOutcome::Word => p.words += 1,
             FieldOutcome::Phrase => p.phrases += 1,
@@ -125,6 +151,91 @@ pub fn preview_mapping(
         }
     }
     Ok(p)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Suggestion {
+    pub mapping: NoteTypeMapping,
+    /// Why these fields were picked, in plain words for the setup screen.
+    pub reason: String,
+}
+
+/// Looks at a sample of the note type's notes and proposes a mapping from what the fields
+/// contain, not from their names: a field where most notes have a bold/italic part is a
+/// sentence with a marked word; otherwise the field that most often holds a single word with
+/// kanji. The reading field is the one whose first line is kana in most notes.
+pub fn suggest_mapping(
+    anki: &dyn AnkiSource,
+    tok: &dyn Tokenizer,
+    model_id: i64,
+    model_name: &str,
+    fields: &[String],
+) -> Result<Option<Suggestion>> {
+    let ids = anki.find_notes(&format!("mid:{model_id}"))?;
+    let step = (ids.len() / 60).max(1);
+    let sample: Vec<i64> = ids.iter().step_by(step).take(60).copied().collect();
+    let notes = anki.notes_info(&sample)?;
+    if notes.is_empty() {
+        return Ok(None);
+    }
+    let n = notes.len() as f64;
+    let ratio = |f: &dyn Fn(&str) -> bool, field: &str| -> f64 {
+        notes.iter().filter(|note| f(note.fields.get(field).map(String::as_str).unwrap_or(""))).count() as f64 / n
+    };
+    let first = |v: &str| clean_field(v).into_iter().next().map(|c| c.text).unwrap_or_default();
+
+    let marked = fields
+        .iter()
+        .map(|f| (f, ratio(&|v| !marked_text(v).is_empty(), f)))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .filter(|(_, r)| *r >= 0.5);
+    let (target, mode, reason) = if let Some((f, r)) = marked {
+        let reason = format!("In {:.0}% of notes, “{f}” has a bold, italic or underlined part, so that part is taken as the word.", r * 100.0);
+        (f.clone(), TargetMode::Marked, reason)
+    } else {
+        let mut best: Option<(&String, f64)> = None;
+        for f in fields {
+            let mut words = 0.0;
+            for note in &notes {
+                let v = note.fields.get(f).map(String::as_str).unwrap_or("");
+                if has_kanji(&first(v)) && keys_for_field(tok, v, None)?.outcome == FieldOutcome::Word {
+                    words += 1.0;
+                }
+            }
+            if best.is_none_or(|(_, b)| words / n > b) {
+                best = Some((f, words / n));
+            }
+        }
+        match best.filter(|(_, r)| *r >= 0.3) {
+            Some((f, r)) => (
+                f.clone(),
+                TargetMode::Field,
+                format!("“{f}” holds a single word with kanji in {:.0}% of notes.", r * 100.0),
+            ),
+            None => return Ok(None),
+        }
+    };
+    let reading = fields
+        .iter()
+        .filter(|f| **f != target)
+        .map(|f| (f, ratio(&|v| is_all_kana(&first(v)), f)))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .filter(|(_, r)| *r >= 0.6)
+        .map(|(f, _)| f.clone());
+    let reason = match &reading {
+        Some(r) => format!("{reason} “{r}” starts with kana, so it's used as the reading."),
+        None => reason,
+    };
+    Ok(Some(Suggestion {
+        mapping: NoteTypeMapping {
+            model_id,
+            model_name: model_name.to_string(),
+            target_field: target,
+            reading_field: reading,
+            target_mode: mode,
+        },
+        reason,
+    }))
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -191,9 +302,7 @@ pub fn sync_anki(
             notes.iter().flat_map(|n| n.cards.iter().copied()).filter(|c| in_scope.contains(c)).collect();
         let intervals: HashMap<i64, i64> = note_cards.iter().copied().zip(anki.intervals(&note_cards)?).collect();
         for n in &notes {
-            let field = n.fields.get(&m.target_field).map(String::as_str).unwrap_or("");
-            let reading = m.reading_field.as_ref().and_then(|f| n.fields.get(f)).map(String::as_str);
-            let fk = keys_for_field(tok, field, reading)?;
+            let fk = keys_for_note(tok, m, &n.fields)?;
             match fk.outcome {
                 FieldOutcome::Word => report.words += 1,
                 FieldOutcome::Phrase => report.phrases += 1,
@@ -269,6 +378,35 @@ mod tests {
     }
 
     #[test]
+    fn sentence_cards_with_a_marked_word() {
+        let Some(t) = sudachi() else { return };
+        let fields = |sentence: &str, reading: &str| -> BTreeMap<String, String> {
+            [("Sentence", sentence), ("Reading", reading), ("Meaning", "…")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let m = NoteTypeMapping {
+            model_id: 1,
+            model_name: "Sentences".into(),
+            target_field: "Sentence".into(),
+            reading_field: Some("Reading".into()),
+            target_mode: TargetMode::Marked,
+        };
+        // The owner's layout: word reading on the first line, the sentence's reading below.
+        let k = keys_for_note(t, &m, &fields("<b>長篠</b>の戦いは日本の歴史で有名です。", "ながしの<br>ながしのがたたかいは…")).unwrap();
+        assert_eq!(k.keys, vec![key("長篠", "ながしの")]);
+        // A conjugated marked word gives the dictionary form.
+        let k = keys_for_note(t, &m, &fields("彼は駅へ<i>向かった</i>。", "むかった")).unwrap();
+        assert_eq!(k.keys, vec![key("向かう", "むかう")]);
+        // A whole-sentence reading isn't taken as the word's reading.
+        let k = keys_for_note(t, &m, &fields("<b>人気</b>のない道を通った。", "ひとけのないみちをとおった")).unwrap();
+        assert_eq!(k.keys, vec![key("人気", "にんき")]);
+        // No marked word: nothing.
+        assert_eq!(keys_for_note(t, &m, &fields("太字のない文。", "")).unwrap().outcome, FieldOutcome::Empty);
+    }
+
+    #[test]
     fn sync_builds_knowledge() {
         let Some(t) = sudachi() else { return };
         let card = |id, interval, flags: &'static [&'static str], s: Option<f64>, r: Option<f64>| FakeCard {
@@ -291,11 +429,21 @@ mod tests {
                 cards: vec![card(51, 90, &["review", "suspended"], Some(100.0), Some(0.95))] },
             FakeNote { id: 6, model: ("Other", 20), fields: vec![("Front", "魚")],
                 cards: vec![card(61, 90, &["review"], Some(100.0), Some(0.95))] },
+            FakeNote { id: 7, model: ("Sentences", 30), fields: vec![("Sentence", "<b>長篠</b>の戦いは有名です。"), ("Reading", "ながしの<br>ながしのがたたかいは"), ("Meaning", "Nagashino")],
+                cards: vec![card(71, 30, &["review"], Some(40.0), Some(0.9))] },
+            FakeNote { id: 8, model: ("Sentences", 30), fields: vec![("Sentence", "駅へ<i>急いだ</i>。"), ("Reading", "いそいだ"), ("Meaning", "hurried")],
+                cards: vec![card(81, 30, &["review"], Some(40.0), Some(0.9))] },
         ]);
         let anki = AnkiConnect::new(&url);
         let mut store = Store::open_in_memory().unwrap();
         store
-            .save_mapping(&NoteTypeMapping { model_id: 10, model_name: "Vocab".into(), target_field: "Word".into(), reading_field: Some("Reading".into()) })
+            .save_mapping(&NoteTypeMapping {
+                model_id: 10,
+                model_name: "Vocab".into(),
+                target_field: "Word".into(),
+                reading_field: Some("Reading".into()),
+                target_mode: TargetMode::Field,
+            })
             .unwrap();
         let report = sync_anki(&anki, t, &mut store, &KnowledgeSettings::default(), "").unwrap();
         assert!(report.fsrs);
@@ -312,5 +460,15 @@ mod tests {
 
         let preview = preview_mapping(&anki, t, &store.mappings().unwrap()[0], 50).unwrap();
         assert_eq!((preview.notes_total, preview.words), (5, 5));
+
+        let fields: Vec<String> = ["Sentence", "Reading", "Meaning"].map(String::from).to_vec();
+        let sug = suggest_mapping(&anki, t, 30, "Sentences", &fields).unwrap().unwrap();
+        assert_eq!(sug.mapping.target_field, "Sentence");
+        assert_eq!(sug.mapping.target_mode, TargetMode::Marked);
+        assert_eq!(sug.mapping.reading_field.as_deref(), Some("Reading"));
+        let fields: Vec<String> = ["Word", "Reading"].map(String::from).to_vec();
+        let sug = suggest_mapping(&anki, t, 10, "Vocab", &fields).unwrap().unwrap();
+        assert_eq!((sug.mapping.target_field.as_str(), sug.mapping.target_mode), ("Word", TargetMode::Field));
+        assert_eq!(sug.mapping.reading_field.as_deref(), Some("Reading"));
     }
 }

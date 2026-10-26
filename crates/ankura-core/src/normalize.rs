@@ -65,6 +65,44 @@ fn strip_furigana(s: &str) -> (String, Option<String>) {
     (base, reading)
 }
 
+static RE_MARKED: LazyLock<[Regex; 6]> = LazyLock::new(|| {
+    let tag = |t: &str| Regex::new(&format!(r"(?is)<{t}(?:\s[^>]*)?>(.*?)</{t}>")).unwrap();
+    [
+        tag("b"),
+        tag("strong"),
+        tag("i"),
+        tag("em"),
+        tag("u"),
+        Regex::new(r#"(?is)<span[^>]*style\s*=\s*"[^"]*font-weight:\s*(?:bold|[6-9]00)[^"]*"[^>]*>(.*?)</span>"#).unwrap(),
+    ]
+});
+
+/// The bold, italic or underlined parts of a field, in field order (raw HTML inside each part).
+/// Sentence cards often mark the word they teach this way: `<b>長篠</b>の戦いは…`.
+pub fn marked_text(raw: &str) -> Vec<String> {
+    let mut found: Vec<(usize, usize, String)> = Vec::new();
+    for re in RE_MARKED.iter() {
+        for c in re.captures_iter(raw) {
+            let whole = c.get(0).unwrap();
+            found.push((whole.start(), whole.end(), c[1].to_string()));
+        }
+    }
+    found.sort_by_key(|(start, end, _)| (*start, std::cmp::Reverse(*end)));
+    let mut out = Vec::new();
+    let mut covered = 0;
+    for (start, end, inner) in found {
+        // Skip a mark nested inside one already taken (<b><i>x</i></b>).
+        if start < covered {
+            continue;
+        }
+        covered = end;
+        if !clean_field(&inner).is_empty() {
+            out.push(inner);
+        }
+    }
+    out
+}
+
 /// Cleans one field value. Returns the candidates in field order (several when the field lists
 /// alternatives such as `分かる、解る`).
 pub fn clean_field(raw: &str) -> Vec<Candidate> {
@@ -160,6 +198,17 @@ mod tests {
     #[test]
     fn width_normalization() {
         assert_eq!(texts("ｺﾝﾋﾟｭｰﾀｰ"), vec![("コンピューター".into(), None)]);
+    }
+
+    #[test]
+    fn marked_words_in_sentences() {
+        assert_eq!(marked_text("<b>長篠</b>の戦いは日本の歴史で有名です。"), vec!["長篠"]);
+        assert_eq!(marked_text("彼は<i>急いで</i>駅へ<u>向かった</u>。"), vec!["急いで", "向かった"]);
+        assert_eq!(marked_text("<b><i>猫</i></b>が好き"), vec!["<i>猫</i>"]);
+        assert_eq!(marked_text(r#"<span style="font-weight: bold;">本</span>を読む"#), vec!["本"]);
+        assert_eq!(marked_text(r#"<span style="font-weight:700">本</span>"#), vec!["本"]);
+        assert!(marked_text("太字なし").is_empty());
+        assert!(marked_text("<b> </b>文").is_empty());
     }
 
     #[test]

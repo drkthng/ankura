@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
-use ankura_core::mapping::{self, MappingPreview, SyncReport};
+use ankura_core::mapping::{self, MappingPreview, Suggestion, SyncReport};
 use ankura_core::reader::{self, ReaderDoc};
 use ankura_core::store::{KnownWord, NewEvent, NoteTypeMapping, Store, TextMeta, WordStats};
 use ankura_core::tokenize::SudachiTokenizer;
@@ -299,6 +299,15 @@ async fn anki_preview(app: AppHandle, mapping: NoteTypeMapping) -> CmdResult<Map
 }
 
 #[tauri::command]
+async fn anki_suggest(app: AppHandle, model_id: i64, model_name: String, fields: Vec<String>) -> CmdResult<Option<Suggestion>> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        mapping::suggest_mapping(&s.anki(), tok.as_ref(), model_id, &model_name, &fields).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn save_mapping(app: AppHandle, mapping: NoteTypeMapping) -> CmdResult<()> {
     blocking(app, move |s| s.store().save_mapping(&mapping).map_err(err)).await
 }
@@ -357,6 +366,7 @@ pub fn run() {
             anki_check,
             anki_note_types,
             anki_preview,
+            anki_suggest,
             save_mapping,
             delete_mapping,
             anki_sync,

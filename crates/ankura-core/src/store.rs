@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -33,7 +33,8 @@ CREATE TABLE note_type_mappings (
     model_name TEXT NOT NULL,
     target_field TEXT NOT NULL,
     reading_field TEXT,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    target_mode TEXT NOT NULL DEFAULT 'field'
 );
 
 -- Last snapshot read from Anki.
@@ -132,12 +133,34 @@ pub struct Text {
     pub body: String,
 }
 
+/// Where in the target field the word is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetMode {
+    /// The whole field is the word (vocabulary cards).
+    #[default]
+    Field,
+    /// The word is the bold, italic or underlined part of the field (sentence cards).
+    Marked,
+}
+
+impl TargetMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            TargetMode::Field => "field",
+            TargetMode::Marked => "marked",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteTypeMapping {
     pub model_id: i64,
     pub model_name: String,
     pub target_field: String,
     pub reading_field: Option<String>,
+    #[serde(default)]
+    pub target_mode: TargetMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +203,11 @@ impl Store {
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version == 0 {
             conn.execute_batch(SCHEMA)?;
+        }
+        if version == 1 {
+            conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
+        }
+        if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
         let device_id = match conn
@@ -295,7 +323,7 @@ impl Store {
 
     pub fn mappings(&self) -> Result<Vec<NoteTypeMapping>> {
         let mut st = self.conn.prepare(
-            "SELECT model_id, model_name, target_field, reading_field FROM note_type_mappings ORDER BY model_name",
+            "SELECT model_id, model_name, target_field, reading_field, target_mode FROM note_type_mappings ORDER BY model_name",
         )?;
         let rows = st.query_map([], |r| {
             Ok(NoteTypeMapping {
@@ -303,6 +331,7 @@ impl Store {
                 model_name: r.get(1)?,
                 target_field: r.get(2)?,
                 reading_field: r.get(3)?,
+                target_mode: if r.get::<_, String>(4)? == "marked" { TargetMode::Marked } else { TargetMode::Field },
             })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
@@ -310,12 +339,12 @@ impl Store {
 
     pub fn save_mapping(&self, m: &NoteTypeMapping) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO note_type_mappings (model_id, model_name, target_field, reading_field, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO note_type_mappings (model_id, model_name, target_field, reading_field, updated_at, target_mode)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (model_id) DO UPDATE SET model_name = excluded.model_name,
                target_field = excluded.target_field, reading_field = excluded.reading_field,
-               updated_at = excluded.updated_at",
-            params![m.model_id, m.model_name, m.target_field, m.reading_field, now_ms()],
+               updated_at = excluded.updated_at, target_mode = excluded.target_mode",
+            params![m.model_id, m.model_name, m.target_field, m.reading_field, now_ms(), m.target_mode.as_str()],
         )?;
         Ok(())
     }
@@ -546,12 +575,38 @@ mod tests {
     }
 
     #[test]
+    fn migrates_version_1_databases() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&SCHEMA.replace(",\n    target_mode TEXT NOT NULL DEFAULT 'field'", "")).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO note_type_mappings (model_id, model_name, target_field, reading_field, updated_at) VALUES (1, 'Old', 'Word', NULL, 0)",
+                [],
+            )
+            .unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        assert_eq!(s.mappings().unwrap()[0].target_mode, TargetMode::Field);
+        let v: i64 = s.conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+    }
+
+    #[test]
     fn settings_and_mappings() {
         let s = Store::open_in_memory().unwrap();
         assert_eq!(s.setting("anki_url").unwrap(), None);
         s.set_setting("anki_url", "http://127.0.0.1:8765").unwrap();
         assert_eq!(s.setting("anki_url").unwrap().as_deref(), Some("http://127.0.0.1:8765"));
-        let m = NoteTypeMapping { model_id: 7, model_name: "Core 2k".into(), target_field: "Vocab".into(), reading_field: Some("Reading".into()) };
+        let m = NoteTypeMapping {
+            model_id: 7,
+            model_name: "Core 2k".into(),
+            target_field: "Sentence".into(),
+            reading_field: Some("Reading".into()),
+            target_mode: TargetMode::Marked,
+        };
         s.save_mapping(&m).unwrap();
         assert_eq!(s.mappings().unwrap(), vec![m]);
         s.delete_mapping(7).unwrap();
