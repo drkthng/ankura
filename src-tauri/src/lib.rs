@@ -49,6 +49,13 @@ impl AppState {
         AnkiConnect::new(&self.setting("anki_url").unwrap_or_else(|| AnkiConnect::DEFAULT_URL.into()))
     }
 
+    fn scope(&self) -> mapping::Scope {
+        mapping::Scope {
+            extra_query: self.setting("anki_query").unwrap_or_default(),
+            include_suspended: self.knowledge_settings().count_suspended,
+        }
+    }
+
     fn knowledge_settings(&self) -> KnowledgeSettings {
         let d = KnowledgeSettings::default();
         let num = |k: &str, default: f64| self.setting(k).and_then(|v| v.parse().ok()).unwrap_or(default);
@@ -293,7 +300,7 @@ async fn anki_note_types(app: AppHandle) -> CmdResult<Vec<NoteType>> {
 async fn anki_preview(app: AppHandle, mapping: NoteTypeMapping) -> CmdResult<MappingPreview> {
     blocking(app, move |s| {
         let tok = s.tokenizer()?;
-        mapping::preview_mapping(&s.anki(), tok.as_ref(), &mapping, 200).map_err(err)
+        mapping::preview_mapping(&s.anki(), tok.as_ref(), &mapping, &s.scope(), 200).map_err(err)
     })
     .await
 }
@@ -302,7 +309,7 @@ async fn anki_preview(app: AppHandle, mapping: NoteTypeMapping) -> CmdResult<Map
 async fn anki_suggest(app: AppHandle, model_id: i64, model_name: String, fields: Vec<String>) -> CmdResult<Option<Suggestion>> {
     blocking(app, move |s| {
         let tok = s.tokenizer()?;
-        mapping::suggest_mapping(&s.anki(), tok.as_ref(), model_id, &model_name, &fields).map_err(err)
+        mapping::suggest_mapping(&s.anki(), tok.as_ref(), model_id, &model_name, &fields, &s.scope()).map_err(err)
     })
     .await
 }

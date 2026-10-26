@@ -43,8 +43,12 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
     for (i, cand) in clean_field(target).into_iter().enumerate() {
         let hint = reading_override.clone().filter(|_| i == 0).or(cand.reading_hint.clone());
         let tokens = tok.tokenize(&cand.text)?;
-        let content: Vec<_> =
+        let mut content: Vec<_> =
             tokens.iter().filter(|t| matches!(t.kind, TokenKind::Word | TokenKind::Name | TokenKind::Number)).collect();
+        // むしゃくしゃして, あらわにする, 勉強できる: the light verb isn't part of the word.
+        if content.len() > 1 {
+            content.retain(|t| !LIGHT_VERBS.contains(&t.lemma.as_str()));
+        }
         match content.as_slice() {
             [] => {}
             [t] => {
@@ -64,6 +68,11 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
             many => {
                 let reading = hint.unwrap_or_else(|| many.iter().map(|t| t.lemma_reading.as_str()).collect());
                 keys.push(WordKey { lang: tok.lang().into(), lemma: cand.text.clone(), reading });
+                // The reader doesn't match phrases yet (ROADMAP), so the phrase's words count too:
+                // a card for 脱水症状 or 途方に暮れる also tells us about 脱水, 症状, 途方, 暮れる.
+                for t in many {
+                    keys.push(WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() });
+                }
                 if outcome == FieldOutcome::Empty {
                     outcome = FieldOutcome::Phrase;
                 }
@@ -74,6 +83,31 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
     keys.retain(|k| seen.insert(k.clone()));
     Ok(FieldKeys { outcome, keys })
 }
+
+/// Which notes count: those of the user's chosen part of the collection, and only cards they
+/// study (suspended cards are left out unless the user counts them).
+#[derive(Debug, Clone, Default)]
+pub struct Scope {
+    pub extra_query: String,
+    pub include_suspended: bool,
+}
+
+impl Scope {
+    fn notes_query(&self, model_id: i64) -> String {
+        let mut q = format!("mid:{model_id}");
+        if !self.include_suspended {
+            q.push_str(" -is:suspended");
+        }
+        if !self.extra_query.trim().is_empty() {
+            q.push(' ');
+            q.push_str(self.extra_query.trim());
+        }
+        q
+    }
+}
+
+/// Verbs that turn the word before them into a verb or an expression (normalized lemmas).
+const LIGHT_VERBS: &[&str] = &["為る", "する", "成る", "なる", "出来る", "できる", "有る", "ある", "居る", "いる"];
 
 /// A reading for a word can't be much longer than the word (a whole-sentence reading isn't one),
 /// and has to end with the word's own trailing kana (食べる → …べる).
@@ -86,11 +120,16 @@ fn plausible_reading(reading: &str, word: &str) -> bool {
 }
 
 /// The text a mapping takes the word from: the whole field, or its marked parts (one per line).
+/// A sentence with nothing marked (すみません！, どうして？) is taken whole: the sentence is what the
+/// card teaches.
 fn target_text(mapping: &NoteTypeMapping, fields: &BTreeMap<String, String>) -> String {
     let field = fields.get(&mapping.target_field).map(String::as_str).unwrap_or("");
     match mapping.target_mode {
         TargetMode::Field => field.to_string(),
-        TargetMode::Marked => marked_text(field).join("\n"),
+        TargetMode::Marked => {
+            let marked = marked_text(field);
+            if marked.is_empty() { field.to_string() } else { marked.join("\n") }
+        }
     }
 }
 
@@ -124,9 +163,10 @@ pub fn preview_mapping(
     anki: &dyn AnkiSource,
     tok: &dyn Tokenizer,
     mapping: &NoteTypeMapping,
+    scope: &Scope,
     sample: usize,
 ) -> Result<MappingPreview> {
-    let ids = anki.find_notes(&format!("mid:{}", mapping.model_id))?;
+    let ids = anki.find_notes(&scope.notes_query(mapping.model_id))?;
     let sample_ids: Vec<i64> = if ids.len() <= sample {
         ids.clone()
     } else {
@@ -170,8 +210,9 @@ pub fn suggest_mapping(
     model_id: i64,
     model_name: &str,
     fields: &[String],
+    scope: &Scope,
 ) -> Result<Option<Suggestion>> {
-    let ids = anki.find_notes(&format!("mid:{model_id}"))?;
+    let ids = anki.find_notes(&scope.notes_query(model_id))?;
     let step = (ids.len() / 60).max(1);
     let sample: Vec<i64> = ids.iter().step_by(step).take(60).copied().collect();
     let notes = anki.notes_info(&sample)?;
@@ -337,12 +378,16 @@ pub fn sync_anki(
         let intervals: HashMap<i64, i64> = note_cards.iter().copied().zip(anki.intervals(&note_cards)?).collect();
         for n in &notes {
             let fk = keys_for_note(tok, m, &n.fields)?;
-            match fk.outcome {
-                FieldOutcome::Word => per_type.words += 1,
-                FieldOutcome::Phrase => per_type.phrases += 1,
-                FieldOutcome::Empty => per_type.empty_fields += 1,
+            // The report only counts notes the user studies.
+            let studied = n.cards.iter().any(|c| in_scope.contains(c) && (settings.count_suspended || !suspended.contains(c)));
+            if studied {
+                match fk.outcome {
+                    FieldOutcome::Word => per_type.words += 1,
+                    FieldOutcome::Phrase => per_type.phrases += 1,
+                    FieldOutcome::Empty => per_type.empty_fields += 1,
+                }
+                per_type.notes += 1;
             }
-            per_type.notes += 1;
             for &card_id in n.cards.iter().filter(|c| in_scope.contains(c)) {
                 let card_type = if new.contains(&card_id) {
                     0
@@ -494,8 +539,19 @@ mod tests {
         // A whole-sentence reading isn't taken as the word's reading.
         let k = keys_for_note(t, &m, &fields("<b>人気</b>のない道を通った。", "ひとけのないみちをとおった")).unwrap();
         assert_eq!(k.keys, vec![key("人気", "にんき")]);
-        // No marked word: nothing.
-        assert_eq!(keys_for_note(t, &m, &fields("太字のない文。", "")).unwrap().outcome, FieldOutcome::Empty);
+        // Nothing marked: the whole sentence.
+        assert_eq!(keys_for_note(t, &m, &fields("すみません！", "")).unwrap().outcome, FieldOutcome::Word);
+        let k = keys_for_note(t, &m, &fields("どうして？", "")).unwrap();
+        assert_eq!(k.outcome, FieldOutcome::Word);
+        // A word plus a light verb is the word.
+        let k = keys_for_note(t, &m, &fields("<b>むしゃくしゃして</b>いた。", "")).unwrap();
+        assert_eq!(k.outcome, FieldOutcome::Word, "{k:?}");
+        let k = keys_for_note(t, &m, &fields("怒りを<b>あらわにする</b>。", "")).unwrap();
+        assert_eq!(k.outcome, FieldOutcome::Word, "{k:?}");
+        // A real phrase keeps its own key and adds its words.
+        let k = keys_for_note(t, &m, &fields("ただの<b>脱水症状</b>だった。", "")).unwrap();
+        assert_eq!(k.outcome, FieldOutcome::Phrase, "{k:?}");
+        assert!(k.keys.iter().any(|x| x.lemma == "脱水") && k.keys.iter().any(|x| x.lemma == "症状"), "{k:?}");
     }
 
     #[test]
@@ -540,7 +596,8 @@ mod tests {
             .unwrap();
         let report = sync_anki(&anki, t, &mut store, &KnowledgeSettings::default(), "").unwrap();
         assert!(report.fsrs);
-        assert_eq!((report.notes, report.cards, report.words), (5, 5, 5));
+        // 5 cards stored; the suspended note isn't counted as studied.
+        assert_eq!((report.notes, report.cards, report.words), (4, 5, 4));
 
         let state = |l: &str, r: &str| store.knowledge(&key(l, r)).unwrap().map(|k| k.state);
         assert_eq!(state("猫", "ねこ"), Some(WordState::Known));
@@ -551,16 +608,18 @@ mod tests {
         // Not mapped.
         assert_eq!(state("魚", "さかな"), None);
 
-        let preview = preview_mapping(&anki, t, &store.mappings().unwrap()[0], 50).unwrap();
-        assert_eq!((preview.notes_total, preview.words), (5, 5));
+        let preview = preview_mapping(&anki, t, &store.mappings().unwrap()[0], &Scope::default(), 50).unwrap();
+        // The suspended 牛 note is left out.
+        assert_eq!((preview.notes_total, preview.words), (4, 4));
+        assert_eq!(report.note_types[0].notes, 4);
 
         let fields: Vec<String> = ["Sentence", "Reading", "Meaning"].map(String::from).to_vec();
-        let sug = suggest_mapping(&anki, t, 30, "Sentences", &fields).unwrap().unwrap();
+        let sug = suggest_mapping(&anki, t, 30, "Sentences", &fields, &Scope::default()).unwrap().unwrap();
         assert_eq!(sug.mapping.target_field, "Sentence");
         assert_eq!(sug.mapping.target_mode, TargetMode::Marked);
         assert_eq!(sug.mapping.reading_field.as_deref(), Some("Reading"));
         let fields: Vec<String> = ["Word", "Reading"].map(String::from).to_vec();
-        let sug = suggest_mapping(&anki, t, 10, "Vocab", &fields).unwrap().unwrap();
+        let sug = suggest_mapping(&anki, t, 10, "Vocab", &fields, &Scope::default()).unwrap().unwrap();
         assert_eq!((sug.mapping.target_field.as_str(), sug.mapping.target_mode), ("Word", TargetMode::Field));
         assert_eq!(sug.mapping.reading_field.as_deref(), Some("Reading"));
     }

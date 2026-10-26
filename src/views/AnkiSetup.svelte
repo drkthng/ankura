@@ -250,7 +250,7 @@
                 {@const p = d.preview}
                 <div class="preview">
                   <p>
-                    Sample of {p.sampled} of {p.notes_total.toLocaleString()} notes:
+                    Sample of {p.sampled} of the {p.notes_total.toLocaleString()} notes you study{status?.settings.count_suspended ? "" : " (suspended cards left out)"}:
                     <strong>{pct(p.words, p.sampled)}%</strong> single words,
                     {pct(p.phrases, p.sampled)}% phrases, {pct(p.empty, p.sampled)}% empty.
                   </p>
@@ -295,8 +295,8 @@
             ? "FSRS is on, so Ankura uses Anki's own recall estimates."
             : `FSRS is off, so Ankura estimates recall from each card's interval and how overdue it is (${report.overdue.toLocaleString()} cards are 30+ days overdue; those you've likely forgotten show as fading).`}
           {#if report.suspended}
-            {report.suspended.toLocaleString()} {report.suspended === 1 ? "card is" : "cards are"} suspended and
-            {status?.settings.count_suspended ? "count" : "don't count (change this in Settings)"}.
+            {report.suspended.toLocaleString()} suspended {report.suspended === 1 ? "card" : "cards"}
+            {status?.settings.count_suspended ? "counted." : "left out (change this in Settings)."}
           {/if}
         </p>
         <table class="per-type">
