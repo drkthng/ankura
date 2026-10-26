@@ -10,12 +10,13 @@ research report written by a weaker model. Treat it as leads to check, not as fa
 
 ## Working rules (from the owner's global config; cloud sessions don't see that file)
 
-- **PRs are always drafts:** `gh pr create --draft`. The owner marks them ready for review.
+- **Commit and push straight to `main`.** No branches or PRs unless the owner explicitly asks
+  for one in that session (owner's instruction, 2026-10-26). If they do ask for a PR, it's a
+  draft (`gh pr create --draft`), and the owner marks it ready for review.
 - **Questions go through `AskUserQuestion`:** 2-4 options each, recommended option first and
   labeled "(Recommended)", `multiSelect: true` when the choices aren't exclusive. Don't end a
   turn with prose questions the user has to answer by typing. Put the recap and analysis in
   text first, then make the tool call.
-- Work on a feature branch, never commit straight to `main`.
 - Write in plain, direct English. No marketing language in docs.
 
 ## About the owner
