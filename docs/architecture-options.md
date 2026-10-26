@@ -1,7 +1,9 @@
 # Architecture options
 
 Status: proposal, 2026-10-26. Built on `docs/research/landscape.md` and
-`docs/research/claims-check.md`. The owner's decisions on the open questions are in `docs/adr/`.
+`docs/research/claims-check.md`. The owner's decisions on the open questions are in `docs/adr/`
+(0001-0007). The owner accepted the recommendation on every question, and added Italian and
+Spanish to the v1 languages (ADR 0001). Ollama isn't in v1 (ADR 0006).
 
 ## 1. What the architecture has to support
 
@@ -254,6 +256,9 @@ Japanese first, with a language-agnostic core:
   space-delimited tokenizer needs.
 
 The cost is small now and large to add later, so build it this way even if v1 only does Japanese.
+
+Decided: v1 covers Japanese, Italian and Spanish (ADR 0001). Italian and Spanish need an
+on-device lemmatizer, which phase 1 didn't research.
 
 ## 8. Stack options
 
