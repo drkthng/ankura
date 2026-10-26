@@ -66,7 +66,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0010 in `docs/adr/`. Most relevant now: 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0011 in `docs/adr/`. Most relevant now: 0011 (AI without API costs), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -100,8 +100,10 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 
 ## 5. Next steps, in order
 
-1. **Help with the first real "Write for me" run** (owner has the M2 installer link, §1): the API
-   key goes in Settings.
+1. **Owner has no API key and won't pay for API use (Claude Max 20x subscription instead).**
+   Build ADR 0011 in this order: copy & paste via claude.ai (default when no key), then Claude
+   Code CLI, then free OpenRouter models. Push, wait for the Build workflow, and give the owner
+   the Windows artifact link. Then help with their first real run.
    Likely issues: error messages from the real API, prompt quality, texts landing under 95%
    coverage for their small known-word set (~1,600 words); tune the prompt or the threshold
    (`TARGET_COVERAGE` in `generate.rs`).
