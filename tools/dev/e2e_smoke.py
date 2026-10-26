@@ -257,6 +257,18 @@ def main():
         assert "We talked about" in examples, examples
         time.sleep(0.5)
         d.shot(out / "10-generated.png")
+        # Vertical text: the example sentences sit below it, not over it.
+        vertical = "//label[contains(., 'Vertical')]/input"
+        if not d.js("return document.querySelector('.text').classList.contains('vertical')"):
+            d.click(vertical)
+            time.sleep(0.4)
+        gap = d.js(
+            "return document.querySelector('.examples').getBoundingClientRect().top"
+            " - document.querySelector('.text').getBoundingClientRect().bottom"
+        )
+        d.shot(out / "10b-generated-vertical.png")
+        assert gap >= 0, f"examples overlap the vertical text by {-gap}px"
+        d.click(vertical)
         assert len(d.invoke("list_texts")) == 2
 
         # Copy & paste through claude.ai: a weak reply gets a rewrite request, a good one opens.

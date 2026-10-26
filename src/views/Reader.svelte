@@ -288,6 +288,10 @@
     margin: -4rem auto 4rem;
     padding: 0 2rem;
   }
+  /* Vertical text has no bottom padding to pull back into. */
+  .text.vertical + .examples {
+    margin-top: 1.5rem;
+  }
   .examples h2 {
     font-size: 1rem;
     color: var(--muted);
