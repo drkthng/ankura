@@ -4,8 +4,10 @@ Ankura is a cross-platform (desktop + Android) extensive-reading tool for langua
 knows the user's Anki card stats, tracks its own word/kanji exposure and lookup stats, and uses AI
 to generate interest-tailored n+1 texts with a high share of known words.
 
-**Status:** desktop app for Japanese, milestone M1 (`docs/ROADMAP.md`). Background:
-`docs/HANDOFF.md` (vision, requirements, first phase) and the ADRs in `docs/adr/`.
+**Status:** desktop app for Japanese. M1 done and in daily use; M2 (AI-written texts) built,
+not yet tried against the real API. **Start with `docs/NEXT-SESSION.md`** (state, owner, code
+map, cloud-session tips, next steps), then `docs/ROADMAP.md` and the ADRs in `docs/adr/`.
+`docs/HANDOFF.md` is the original phase-1 brief (vision, requirements); its tasks are done.
 `docs/research/prior-ai-report.md` is an unverified report by a weaker model; treat it as leads to
 check, not as fact.
 

@@ -1,5 +1,8 @@
 # Ankura: handoff to the first working agent
 
+> **Historical.** Phase 1 below is done (research docs, ADRs 0001-0010, M1, most of M2). The
+> vision and requirements still apply; for the current state read `docs/NEXT-SESSION.md`.
+
 Date written: 2026-10-26. Written by the setup session, which deliberately did **not** start
 building. You are the first agent to do real work here.
 
