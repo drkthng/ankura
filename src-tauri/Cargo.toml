@@ -1,0 +1,4 @@
+[package]
+name = "ankura"
+edition.workspace = true
+version.workspace = true

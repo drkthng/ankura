@@ -1,0 +1,22 @@
+[package]
+name = "ankura-core"
+description = "Ankura's engine: tokenizing, Anki knowledge, dictionary, telemetry. No UI or platform code."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+regex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sudachi.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+ureq.workspace = true
+uuid.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tiny_http = "0.12"

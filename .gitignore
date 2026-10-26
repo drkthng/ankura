@@ -9,3 +9,5 @@ build/
 Thumbs.db
 .idea/
 .vscode/
+# Workspace build output
+/target
