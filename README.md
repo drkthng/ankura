@@ -31,8 +31,22 @@ Layout:
 | `docs` | Research, architecture options, ADRs, roadmap. |
 | `spikes` | Throwaway experiments (S3 tokenizer comparison). |
 
-Requirements: Rust (stable), Node 22+, and on Linux the Tauri prerequisites
-(`libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`).
+Requirements: Rust (stable), Node 22+, and the Tauri prerequisites for your system:
+
+- **Windows:** Rust and Microsoft's C++ build tools. WebView2 ships with Windows 10 and 11.
+
+  ```powershell
+  winget install --id Rustlang.Rustup
+  winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+  # then, in a new terminal:
+  rustup default stable-msvc
+  ```
+
+- **macOS:** `xcode-select --install`, then Rust from <https://rustup.rs>.
+- **Linux (Debian/Ubuntu):** Rust from <https://rustup.rs>, plus
+  `libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`.
+
+The first build compiles all dependencies and takes several minutes.
 
 ```bash
 npm install
