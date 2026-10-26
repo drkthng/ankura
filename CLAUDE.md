@@ -31,6 +31,7 @@ research report written by a weaker model. Treat it as leads to check, not as fa
 ## Conventions (to be filled in once the stack is chosen)
 
 - Stack: Tauri v2, Rust core, Svelte UI (`docs/adr/0003-app-stack.md`), pending spikes S1-S3 in
-  `docs/architecture-options.md` §9. v1 languages: Japanese, Italian, Spanish (ADR 0001).
+  `docs/architecture-options.md` §9. v1 languages: Japanese, Italian, Spanish (ADR 0001). Japanese tokenizer: sudachi.rs + SudachiDict
+  core (ADR 0008).
 - Build / test / lint commands: _none yet_
 - Record architecture decisions in `docs/adr/NNNN-title.md`.
