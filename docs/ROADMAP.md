@@ -53,17 +53,23 @@ Known gaps after M1, to pick up next:
 
 ## M3: Personal and fun
 
-- [ ] Interest profile: inferred from pasted texts, editable (weights, custom scenarios), steers
-      generation.
-- [ ] Stats: words seen, lookups, friction, "stealth leeches", reading streaks and character
-      counts.
+Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the proficiency test.
+
 - [x] Anki cards from reading: card list, i+1 sentences, fields in the style of the user's notes,
       add-only (ADR 0007, ADR 0012).
 - [x] Select a phrase in the reader to look it up and card it as one unit (ADR 0012).
 - [x] Phrases from Anki cards and the user's marks show as one word in the reader (気になります
       matches a 気になる card).
-- [ ] Kanji popover: other words in your deck with the same kanji.
+- [ ] Stats: words seen, lookups, friction, "stealth leeches", reading streaks and character
+      counts.
+- [ ] Kanji (ADR 0013): kanji note mapping, kanji pop-up (card, keyword, story, words with it),
+      new RTK-style mnemonics, consistent primitive names across the set; edits limited to the
+      mnemonic field, confirmed, backed up, undoable.
 - [ ] Correctable furigana, card readings, counter sound changes (ADR 0008 consequences).
+- [ ] Interest profile: inferred from pasted texts, editable (weights, custom scenarios), steers
+      generation.
+- [ ] Proficiency test: a general test, and tests modelled on official exams (JLPT; CILS/CELI or
+      DELE/SIELE later); listening last. Research in `docs/research/proficiency-tests.md`.
 
 ## M4: Release
 
