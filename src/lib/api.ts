@@ -196,6 +196,33 @@ export interface ChatOutcome {
   saved: GenerateResult | null;
 }
 
+export interface Friction {
+  key: WordKey;
+  display: string;
+  state: WordState;
+  strength: number | null;
+  lookups: number;
+  last: number;
+}
+
+export interface Stats {
+  known_words: number;
+  chars_total: number;
+  chars_today: number;
+  days: { day: string; chars: number }[];
+  streak: number;
+  best_streak: number;
+  texts_read: number;
+  words_seen_30d: number;
+  words_looked_up_30d: number;
+  stealth_leeches: Friction[];
+  most_looked_up: Friction[];
+}
+
+/** The user's local date, YYYY-MM-DD. */
+export const localDay = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export interface Simplified {
   tokens: ReaderToken[];
   simple: string;
@@ -277,6 +304,8 @@ export const api = {
     invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),
   openClaudeAi: () => invoke<void>("open_claude_ai"),
 
+  recordReading: (chars: number) => invoke<void>("record_reading", { day: localDay(), chars }),
+  readingStats: () => invoke<Stats>("reading_stats", { today: localDay() }),
   simplifySentence: (sentence: string) => invoke<Simplified>("simplify_sentence", { sentence }),
   phraseInfo: (selection: string) => invoke<ReaderToken | null>("phrase_info", { selection }),
   cardOptions: () => invoke<CardOptions>("card_options"),

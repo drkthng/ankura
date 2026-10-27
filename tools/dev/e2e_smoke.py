@@ -144,7 +144,9 @@ def main():
         subprocess.Popen([sys.executable, str(HERE / "fake_llm.py"), "8766"], stdout=subprocess.DEVNULL),
     ]
     time.sleep(1)
-    procs.append(subprocess.Popen(["tauri-driver", "--port", "4444"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    # The app's and the driver's output, for when the session drops.
+    driver_log = open(out / "tauri-driver.log", "w")
+    procs.append(subprocess.Popen(["tauri-driver", "--port", "4444"], env=env, stdout=driver_log, stderr=subprocess.STDOUT))
     wait_port(8765)
     wait_port(8766)
     wait_port(4444)
@@ -375,6 +377,16 @@ def main():
         print("added to Anki:", [(n["fields"][0], n["deck"], n["tags"]) for n in added])
         assert len(added) == 2 and all(n["tags"] == ["ankura"] and n["deck"] == "日本語::文" for n in added), added
         d.shot(out / "15-cards-added.png")
+
+        # Stats: characters read (logged as paragraphs counted as read) and the streak.
+        d.click("//nav//button[normalize-space()='Stats']")
+        today = d.text("//div[contains(@class,'tile')][.//span[normalize-space()='Read today']]")
+        print("stats:", today.replace("\n", " "))
+        st = d.invoke("reading_stats", {"today": time.strftime("%Y-%m-%d")})
+        assert st["chars_today"] > 0 and st["streak"] == 1, st
+        d.js("document.querySelectorAll('rect.hit')[29].dispatchEvent(new MouseEvent('mouseenter'))")
+        d.find("//div[contains(@class,'tip')]")
+        d.shot(out / "16-stats.png")
         print("OK")
     except Exception:
         if d:

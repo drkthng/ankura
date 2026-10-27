@@ -50,6 +50,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `furigana.rs`, `kana.rs` | Ruby segments over kanji only; kana helpers |
 | `normalize.rs` | Anki field cleaning (HTML, ruby, `漢字[かんじ]`, cloze, sound, lists, brackets); `marked_text` (bold/italic/underline) |
 | `mapping.rs` | Field → word keys (light verbs, phrases + their words, reading plausibility, unmarked-sentence fallback, word picked by reading), preview, `suggest_mapping` (content-based), `sync_anki` (AnkiConnect, FSRS buckets via `prop:s`/`prop:r`, overdue buckets via `prop:due` without FSRS, per-note-type report, `Scope` excludes suspended) |
+| `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
 | `dict.rs` | Yomitan zip import (plain and structured-content glossaries), lookup by spelling or reading |
@@ -61,7 +62,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |
-| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), AnkiSetup, Settings |
+| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, AnkiSetup, Settings |
 | `src/components/` | `WordPopover`, `CoverageBar` |
 | `tools/dev/` | `fake_ankiconnect.py` (incl. a "Satzkarten" note type like the owner's), `fake_llm.py`, `jamdict_to_yomitan.py`, `e2e_smoke.py` |
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
@@ -81,7 +82,9 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 - **E2E flakiness:** WebKitWebDriver sometimes drops the session ("Remote end closed connection"),
   usually right after the copy & paste flow writes to the clipboard (WebKitGTK under Xvfb?
   unverified; Linux only, the Windows app uses WebView2); kill leftovers (`pkill -x Xvfb ankura tauri-driver WebKitWebDriver` one by
-  one) and rerun. The fakes send `Connection: close` (ureq reused closed connections).
+  one) and rerun. The fakes send `Connection: close` (ureq reused closed connections). The
+  driver's and app's output goes to `<out>/tauri-driver.log` (a "Connection refused" backtrace
+  at startup is harmless: the driver retries).
 - **Linux build prerequisites:**
   `apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev
   libayatana-appindicator3-dev librsvg2-dev fonts-noto-cjk webkit2gtk-driver xdotool imagemagick`,

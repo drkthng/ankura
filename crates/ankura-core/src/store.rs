@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -133,6 +133,17 @@ CREATE TABLE card_drafts (
 );
 "#;
 
+/// Characters read per day (ROADMAP M3 stats); added in version 6. The day is the user's local date.
+const READING_SCHEMA: &str = r#"
+CREATE TABLE reading_days (
+    device_id TEXT NOT NULL,
+    lang TEXT NOT NULL,
+    day TEXT NOT NULL,             -- YYYY-MM-DD, local
+    chars INTEGER NOT NULL,
+    PRIMARY KEY (device_id, lang, day)
+);
+"#;
+
 pub(crate) fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
@@ -244,6 +255,7 @@ impl Store {
         if version == 0 {
             conn.execute_batch(SCHEMA)?;
             conn.execute_batch(CARDS_SCHEMA)?;
+            conn.execute_batch(READING_SCHEMA)?;
         }
         if version == 1 {
             conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
@@ -256,6 +268,9 @@ impl Store {
         }
         if (1..=4).contains(&version) {
             conn.execute_batch(CARDS_SCHEMA)?;
+        }
+        if (1..=5).contains(&version) {
+            conn.execute_batch(READING_SCHEMA)?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -637,6 +652,16 @@ impl Store {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Adds characters read on a (local) day.
+    pub fn record_reading(&self, lang: &str, day: &str, chars: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO reading_days (device_id, lang, day, chars) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (device_id, lang, day) DO UPDATE SET chars = chars + excluded.chars",
+            params![self.device_id, lang, day, chars],
+        )?;
         Ok(())
     }
 

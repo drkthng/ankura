@@ -60,8 +60,8 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] Select a phrase in the reader to look it up and card it as one unit (ADR 0012).
 - [x] Phrases from Anki cards and the user's marks show as one word in the reader (気になります
       matches a 気になる card).
-- [ ] Stats: words seen, lookups, friction, "stealth leeches", reading streaks and character
-      counts.
+- [x] Stats: characters read per day, streaks, words met and looked up, "stealth leeches" (known
+      in Anki, looked up again while reading) and most looked-up words, each with "+ card".
 - [ ] Kanji (ADR 0013): kanji note mapping, kanji pop-up (card, keyword, story, words with it),
       new RTK-style mnemonics, consistent primitive names across the set; edits limited to the
       mnemonic field, confirmed, backed up, undoable.

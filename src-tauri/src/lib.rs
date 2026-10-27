@@ -507,6 +507,19 @@ fn open_claude_ai() -> CmdResult<()> {
     cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the browser ({e}); go to {URL} yourself"))
 }
 
+// --- stats (ROADMAP M3) ---
+
+/// Characters read in a paragraph that counted as read; `day` is the user's local date.
+#[tauri::command]
+async fn record_reading(app: AppHandle, day: String, chars: i64) -> CmdResult<()> {
+    blocking(app, move |s| s.store().record_reading("ja", &day, chars).map_err(err)).await
+}
+
+#[tauri::command]
+async fn reading_stats(app: AppHandle, today: String) -> CmdResult<ankura_core::stats::Stats> {
+    blocking(app, move |s| ankura_core::stats::stats(&s.store(), "ja", &today).map_err(err)).await
+}
+
 #[tauri::command]
 async fn simplify_sentence(app: AppHandle, sentence: String) -> CmdResult<generate::Simplified> {
     blocking(app, move |s| {
@@ -705,6 +718,8 @@ pub fn run() {
             chat_submit,
             open_claude_ai,
             simplify_sentence,
+            record_reading,
+            reading_stats,
             phrase_info,
             card_options,
             card_field_names,

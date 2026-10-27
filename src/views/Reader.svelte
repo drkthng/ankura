@@ -73,6 +73,8 @@
             i,
             setTimeout(() => {
               exposed.add(i);
+              const chars = (doc?.paragraphs[i] ?? []).reduce((n, t) => n + t.surface.replace(/\s/g, "").length, 0);
+              if (chars) api.recordReading(chars).catch(() => {});
               for (const t of doc?.paragraphs[i] ?? []) {
                 if (t.key && t.kind === "word") pending.push({ kind: "exposure", key: t.key, text_id: id, display: t.dictionary_form });
               }
