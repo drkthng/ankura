@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -272,6 +272,7 @@ impl Store {
             conn.execute_batch(crate::kanji::KANJI_SCHEMA)?;
             conn.execute_batch(crate::primitives::PRIMITIVES_SCHEMA)?;
             conn.execute_batch(READING_FIXES_SCHEMA)?;
+            conn.execute_batch(crate::proficiency::TESTS_SCHEMA)?;
         }
         if version == 1 {
             conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
@@ -296,6 +297,9 @@ impl Store {
         }
         if (1..=8).contains(&version) {
             conn.execute_batch(READING_FIXES_SCHEMA)?;
+        }
+        if (1..=9).contains(&version) {
+            conn.execute_batch(crate::proficiency::TESTS_SCHEMA)?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

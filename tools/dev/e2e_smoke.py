@@ -419,6 +419,7 @@ def main():
         d.click("//span[contains(@class,'tok') and contains(., '猫')]")
         d.click("//div[@role='dialog']//button[contains(@class,'kchip') and normalize-space()='猫']")
         d.find("//div[@role='dialog']//span[contains(@class,'kw') and normalize-space()='cat']")
+        time.sleep(0.4)  # the pop-up moves to fit the kanji panel; a click mid-move hits the backdrop
         d.click("//div[@role='dialog']//button[normalize-space()='Show story']")
         d.find("//div[@role='dialog']//p[contains(@class,'story')]")
         story = d.js("return document.querySelector('[role=dialog] p.story').textContent")  # may be scrolled out of view
@@ -473,6 +474,29 @@ def main():
         print("added to Anki:", [(n["fields"][0], n["deck"], n["tags"]) for n in added])
         assert len(added) == 2 and all(n["tags"] == ["ankura"] and n["deck"] == "日本語::文" for n in added), added
         d.shot(out / "15-cards-added.png")
+
+        # Level check (ADR 0014): answer everything, read the result.
+        d.click("//nav//button[normalize-space()='Level check']")
+        d.click("//button[normalize-space()='Start']")
+        seen = set()
+        for _ in range(400):
+            state = d.js(
+                "if (document.querySelector('.headline')) return 'done';"
+                "const k = [...document.querySelectorAll('button')].find(b => b.textContent.startsWith('Know it'));"
+                "if (k) { k.click(); return 'vocab'; }"
+                "const o = document.querySelector('.options button');"
+                "if (o) { const s = document.querySelector('.page p.muted.small')?.textContent ?? ''; o.click(); return s.split(' · ')[0]; }"
+                "return 'wait';"
+            )
+            seen.add(state)
+            if state == "done":
+                break
+            time.sleep(0.25 if state == "wait" else 0.05)
+        print("level check sections:", sorted(seen))
+        headline = d.text("//p[contains(@class,'headline')]")
+        print("level check:", headline)
+        assert "CEFR" in headline and {"vocab", "2. Kanji readings", "3. Grammar", "3. Grammar, part 2", "4. Reading"} <= seen, seen
+        d.shot(out / "15b-level-check.png")
 
         # Stats: characters read (logged as paragraphs counted as read) and the streak.
         d.click("//nav//button[normalize-space()='Stats']")

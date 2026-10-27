@@ -15,6 +15,7 @@ pub mod llm;
 pub mod mapping;
 pub mod normalize;
 pub mod primitives;
+pub mod proficiency;
 pub mod reader;
 pub mod stats;
 pub mod store;

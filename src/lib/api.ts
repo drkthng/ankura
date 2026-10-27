@@ -241,6 +241,36 @@ export interface StoryRewrite {
   new: string;
 }
 
+export interface TestItem {
+  id: string;
+  section: "vocab" | "kanji" | "grammar1" | "grammar2" | "reading";
+  prompt: string;
+  options: string[];
+  passage: string | null;
+}
+
+export interface Estimate {
+  /** Probability per ability: 0 below N5, 1 N5 … 5 N1. */
+  probs: number[];
+  level: number;
+  sections: { section: string; level: number; right: number; total: number }[];
+  false_alarms: number;
+  vocab_known: number;
+  vocab_range: [number, number];
+  vocab_total: number;
+  cefr: string;
+}
+
+export interface TestIntro {
+  coverage: { level: number; words: number; known_in_anki: number }[];
+  suggested: number;
+  credit: string;
+  history: { id: string; finished_at: number; result: Estimate }[];
+}
+
+/** Ability 0-5 as a name: 0 below N5, 1 N5 … 5 N1. */
+export const abilityName = (a: number) => (a === 0 ? "below N5" : `N${6 - a}`);
+
 export interface Interests {
   topics: { name: string; weight: number }[];
   avoid: string[];
@@ -374,6 +404,12 @@ export const api = {
   primitivesCandidates: () => invoke<StoryCandidate[]>("primitives_candidates"),
   primitivesRewrite: (kanji: string[]) => invoke<StoryRewrite[]>("primitives_rewrite", { kanji }),
   primitivesSave: (kanji: string, story: string) => invoke<number>("primitives_save", { kanji, story }),
+  testIntro: () => invoke<TestIntro>("test_intro"),
+  testStart: (level: number) => invoke<{ id: string; start_level: number; vocab: TestItem[]; kanji: TestItem[] }>("test_start", { level }),
+  testAnswer: (testId: string, answers: { item_id: string; choice: number }[]) => invoke<void>("test_answer", { testId, answers }),
+  testGrammar: (testId: string, stage: number) => invoke<TestItem[]>("test_grammar", { testId, stage }),
+  testReading: (testId: string) => invoke<TestItem[]>("test_reading", { testId }),
+  testFinish: (testId: string) => invoke<Estimate>("test_finish", { testId }),
   getInterests: () => invoke<Interests>("get_interests"),
   setInterests: (value: Interests) => invoke<void>("set_interests", { value }),
   pickTopic: () => invoke<string | null>("pick_topic"),

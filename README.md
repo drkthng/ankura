@@ -33,6 +33,9 @@ notes.
   words that use it. When a story won't stick, the AI writes a new one from the kanji's primitives;
   you confirm before it goes into Anki, and can undo it. Make primitive names consistent across
   your whole set in one go. → [Kanji](docs/guide/kanji.md)
+- **Find your level.** A 15-20 minute level check in the style of the JLPT (words, kanji
+  readings, grammar, reading) estimates your level, how sure it is, and the CEFR equivalent.
+  → [Level check](docs/guide/level-check.md)
 - **See your progress.** Characters read per day, reading streaks, and "stealth leeches": words
   Anki says you know, but you keep looking up. → [Stats](docs/guide/stats.md)
 
@@ -63,7 +66,8 @@ has the details.
 ## Status
 
 Ankura is young and used daily by its first user. Japanese on desktop (Windows, macOS, Linux)
-comes first. Next on the [roadmap](docs/ROADMAP.md): a proficiency test. Android, sync between devices,
+comes first. Next on the [roadmap](docs/ROADMAP.md): JLPT practice tests per level; later listening, Italian
+and Spanish. Android, sync between devices,
 Italian and Spanish come later. Design decisions are recorded in [`docs/adr`](docs/adr).
 
 ## Building from source
@@ -73,4 +77,5 @@ See [docs/DEVELOPING.md](docs/DEVELOPING.md).
 ## Licence
 
 MIT. Dictionaries are downloaded separately and have their own licences: SudachiDict (Apache-2.0),
-JMdict (EDRDG, CC BY-SA 4.0).
+JMdict (EDRDG, CC BY-SA 4.0). The level check uses Jonathan Waller's JLPT lists
+([tanos.co.uk](https://www.tanos.co.uk/jlpt/), CC BY).

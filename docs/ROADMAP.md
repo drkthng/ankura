@@ -71,8 +71,10 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] Interest profile: weighted topics and topics to avoid, suggested from what the user reads,
       editable on the Write page; steers topic ideas, picks the topic when none is given, and
       the avoid list goes into every text prompt.
-- [ ] Proficiency test: a general test, and tests modelled on official exams (JLPT; CILS/CELI or
-      DELE/SIELE later); listening last. Research in `docs/research/proficiency-tests.md`.
+- [x] Proficiency test v1: a JLPT-style level check (ADR 0014): yes/no words with made-up words,
+      kanji readings, two-stage AI grammar, reading; latent-level result with CEFR reference.
+- [ ] JLPT practice tests per level (v1.5); Italian (CILS) and Spanish (DELE/SIELE) tests;
+      listening with TTS. Research in `docs/research/proficiency-tests.md`.
 
 ## M4: Release
 

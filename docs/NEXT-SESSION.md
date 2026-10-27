@@ -54,6 +54,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `kanji.rs` | Kanji note mappings (+ `suggest_mapping`), kanji table filled by sync, `card` (pop-up), `new_story` (RTK mnemonic), `save_story` / `undo_story` (mnemonic field only, `kanji_edits` backup, tag `ankura-edited`) |
 | `primitives.rs` | Consistent primitive names: `analyse` (batches of 40, progress, stop, resumable; `kanji_primitives`, `kanji_analysed`), `list` (clashes first), `approve` (`primitive_names`, also used by `kanji::new_story`), `candidates`, `rewrite`, `save_rewrite` |
 | `interests.rs` | Interest profile (setting `interests`: weighted topics, avoid list), `pick` (by weight), `suggest` (AI, from pasted texts and asked-for topics) |
+| `proficiency.rs` | Level check (ADR 0014): bundled JLPT lists (`data/`, tanos CC BY), vocab yes/no with pseudowords, kanji readings with rule distractors, AI grammar/reading checked by a solver call, latent-level scoring (`p_right` guessing model), `tests`/`test_items` |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -66,7 +67,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |
-| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), AnkiSetup (incl. kanji note mapping), Settings |
+| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), Test (level check), AnkiSetup (incl. kanji note mapping), Settings |
 | `src/components/` | `WordPopover`, `KanjiPanel`, `CoverageBar` |
 | `tools/dev/` | `fake_ankiconnect.py` (incl. a "Satzkarten" note type like the owner's), `fake_llm.py`, `jamdict_to_yomitan.py`, `e2e_smoke.py` |
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
@@ -134,9 +135,10 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    still guessed (the user can correct them per text or everywhere; `reading_fixes`, schema v9); Sudachi splits some words oddly
    (一時的 → 一|時|的).
 5. **M3** (ROADMAP, owner's order 2026-10-27): stats ✓, kanji ✓ (ADR 0013, all points);
-   furigana ✓ (counters by rule, user corrections), interests ✓; next
-   the proficiency test (research: `docs/research/proficiency-tests.md`; open question: which
-   frequency list, licence).
+   furigana ✓ (counters by rule, user corrections), interests ✓, level check ✓ (ADR 0014).
+   Next: JLPT practice tests per level (research §Recommendations v1.5), then listening, Italian,
+   Spanish. The level check's response rates in `p_right` are assumptions; stored answers can
+   calibrate them later.
 6. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,
    ADR 0004) and sync (ADR 0005); Italian/Spanish lemmatizer (ADR 0001); sudachi.rs needs a
    one-line Android patch (ADR 0008); Tauri 3 is in alpha.

@@ -9,8 +9,9 @@
   import Cards from "./views/Cards.svelte";
   import StatsView from "./views/Stats.svelte";
   import KanjiView from "./views/Kanji.svelte";
+  import TestView from "./views/Test.svelte";
 
-  type View = { name: "library" } | { name: "reader"; id: string } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "anki" } | { name: "settings" };
+  type View = { name: "library" } | { name: "reader"; id: string } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "anki" } | { name: "settings" };
 
   let view = $state<View>({ name: "library" });
   let status = $state<Status | null>(null);
@@ -45,6 +46,7 @@
     <button class:active={view.name === "cards"} onclick={() => (view = { name: "cards" })}>Cards</button>
     <button class:active={view.name === "stats"} onclick={() => (view = { name: "stats" })}>Stats</button>
     <button class:active={view.name === "kanji"} onclick={() => (view = { name: "kanji" })}>Kanji</button>
+    <button class:active={view.name === "test"} onclick={() => (view = { name: "test" })}>Level check</button>
     <button class:active={view.name === "anki"} onclick={() => (view = { name: "anki" })}>Anki</button>
     <button class:active={view.name === "settings"} onclick={() => (view = { name: "settings" })}>Settings</button>
     <div class="spacer"></div>
@@ -72,6 +74,8 @@
       <StatsView />
     {:else if view.name === "kanji"}
       <KanjiView ongo={(name) => (view = { name })} />
+    {:else if view.name === "test"}
+      <TestView />
     {:else if view.name === "anki"}
       <AnkiSetup {status} onchange={refresh} />
     {:else if view.name === "settings"}

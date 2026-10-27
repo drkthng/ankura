@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::{interests, kanji, primitives};
+use ankura_core::{interests, kanji, primitives, proficiency};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -673,6 +673,64 @@ async fn suggest_interests(app: AppHandle) -> CmdResult<Vec<String>> {
     .await
 }
 
+// --- level check (ADR 0014) ---
+
+#[derive(Serialize)]
+struct TestIntro {
+    coverage: Vec<proficiency::LevelCoverage>,
+    suggested: u8,
+    credit: &'static str,
+    history: Vec<proficiency::PastTest>,
+}
+
+#[tauri::command]
+async fn test_intro(app: AppHandle) -> CmdResult<TestIntro> {
+    blocking(app, |s| {
+        let store = s.store();
+        let coverage = proficiency::coverage(&store).map_err(err)?;
+        Ok(TestIntro {
+            suggested: proficiency::suggested_start(&coverage),
+            coverage,
+            credit: proficiency::CREDIT,
+            history: proficiency::history(&store).map_err(err)?,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn test_start(app: AppHandle, level: u8) -> CmdResult<proficiency::Started> {
+    blocking(app, move |s| proficiency::start(&s.store(), level).map_err(err)).await
+}
+
+#[tauri::command]
+async fn test_answer(app: AppHandle, test_id: String, answers: Vec<proficiency::Answer>) -> CmdResult<()> {
+    blocking(app, move |s| proficiency::answer(&s.store(), &test_id, &answers).map_err(err)).await
+}
+
+#[tauri::command]
+async fn test_grammar(app: AppHandle, test_id: String, stage: u8) -> CmdResult<Vec<proficiency::ItemView>> {
+    blocking(app, move |s| {
+        let llm = s.llm()?;
+        proficiency::grammar(&s.own_store()?, &llm, &test_id, stage).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn test_reading(app: AppHandle, test_id: String) -> CmdResult<Vec<proficiency::ItemView>> {
+    blocking(app, move |s| {
+        let llm = s.llm()?;
+        proficiency::reading(&s.own_store()?, &llm, &test_id).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn test_finish(app: AppHandle, test_id: String) -> CmdResult<proficiency::Estimate> {
+    blocking(app, move |s| proficiency::finish(&s.store(), &test_id).map_err(err)).await
+}
+
 // --- stats (ROADMAP M3) ---
 
 /// Characters read in a paragraph that counted as read; `day` is the user's local date.
@@ -891,6 +949,12 @@ pub fn run() {
             open_claude_ai,
             simplify_sentence,
             record_reading,
+            test_intro,
+            test_start,
+            test_answer,
+            test_grammar,
+            test_reading,
+            test_finish,
             get_interests,
             set_interests,
             pick_topic,

@@ -54,6 +54,23 @@ class Handler(BaseHTTPRequestHandler):
         props = list(body["output_config"]["format"]["schema"]["properties"])
         if props == ["sentence"]:
             answer = card_sentence(prompt)
+        elif props == ["items"]:
+            n = int((re.search(r"Number of items: (\d+)", prompt) or [None, "12"])[1])
+            answer = {"items": [
+                {"question": f"毎日、駅（　）歩いて行きます。#{i}", "options": ["まで", "から", "より", "ほど"], "answer": 0} for i in range(n)
+            ]}
+        elif props == ["passages"]:
+            answer = {"passages": [
+                {"text": f"田中さんは毎朝七時に起きて、八時の電車に乗ります。会社まで三十分かかります。#{i}",
+                 "questions": [{"question": "田中さんは何時に起きますか。", "options": ["七時", "八時", "六時", "九時"], "answer": 0},
+                               {"question": "会社までどのぐらいかかりますか。", "options": ["三十分", "一時間", "十分", "二時間"], "answer": 0}]}
+                for i in range(3)
+            ]}
+        elif props == ["answers"]:
+            # The checker: right on grammar items; reading questions only with the passage.
+            n = len(re.findall(r"^\d+\. ", prompt, re.M))
+            sees = "Passage:" in prompt or "（" in prompt
+            answer = {"answers": [{"index": i, "choice": 0 if sees else 1, "ambiguous": False} for i in range(n)]}
         elif props == ["topics"]:
             answer = {"topics": ["Railway travel", "Morning routines"]}
         elif props == ["kanji"]:
