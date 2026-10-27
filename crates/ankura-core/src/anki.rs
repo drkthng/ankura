@@ -32,6 +32,10 @@ pub trait AnkiSource {
     fn deck_names(&self) -> Result<Vec<String>>;
     /// Adds a note unless Anki says it can't (a duplicate, an empty first field); returns its ID.
     fn add_note(&self, note: &NewNote) -> Result<i64>;
+    /// Sets one field of an existing note. Only `kanji::save_story` calls this, and only for the
+    /// mnemonic field of a mapped kanji note type (ADR 0013).
+    fn update_note_field(&self, note_id: i64, field: &str, value: &str) -> Result<()>;
+    fn add_tag(&self, note_ids: &[i64], tag: &str) -> Result<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -42,8 +46,9 @@ pub struct NewNote {
     pub tags: Vec<String>,
 }
 
-/// Every AnkiConnect action Ankura may send. Only the last two write, and they only add (ADR 0007).
-const ALLOWED_ACTIONS: [&str; 10] = [
+/// Every AnkiConnect action Ankura may send. The writes: adding notes (ADR 0007), and changing the
+/// mnemonic field of kanji notes plus tagging them (ADR 0013).
+const ALLOWED_ACTIONS: [&str; 12] = [
     "version",
     "modelNamesAndIds",
     "modelFieldNames",
@@ -54,6 +59,8 @@ const ALLOWED_ACTIONS: [&str; 10] = [
     "deckNames",
     "canAddNotesWithErrorDetail",
     "addNote",
+    "updateNoteFields",
+    "addTags",
 ];
 
 pub struct AnkiConnect {
@@ -178,6 +185,16 @@ impl AnkiSource for AnkiConnect {
         }
         self.call("addNote", json!({ "note": n }))?.as_i64().ok_or_else(|| Error::Anki("addNote returned no ID".into()))
     }
+
+    fn update_note_field(&self, note_id: i64, field: &str, value: &str) -> Result<()> {
+        self.call("updateNoteFields", json!({ "note": { "id": note_id, "fields": { field: value } } }))?;
+        Ok(())
+    }
+
+    fn add_tag(&self, note_ids: &[i64], tag: &str) -> Result<()> {
+        self.call("addTags", json!({ "notes": note_ids, "tags": tag }))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +268,8 @@ pub(crate) mod fake {
         // A duplicate shares the first field of a note of the same type.
         let first_fields: Vec<(&'static str, &'static str)> =
             notes.iter().map(|n| (n.model.0, n.fields.first().map(|f| f.1).unwrap_or(""))).collect();
+        // Field values changed through updateNoteFields, and tags added.
+        let mut changed: BTreeMap<(i64, String), String> = BTreeMap::new();
         thread::spawn(move || {
             for mut req in server.incoming_requests() {
                 let mut body = String::new();
@@ -290,7 +309,10 @@ pub(crate) mod fake {
                                     .fields
                                     .iter()
                                     .enumerate()
-                                    .map(|(i, (k, val))| (k.to_string(), json!({"value": val, "order": i})))
+                                    .map(|(i, (k, val))| {
+                                        let v = changed.get(&(n.id, k.to_string())).map(String::as_str).unwrap_or(val);
+                                        (k.to_string(), json!({"value": v, "order": i}))
+                                    })
                                     .collect();
                                 json!({"noteId": n.id, "modelName": n.model.0, "fields": fields,
                                        "cards": n.cards.iter().map(|c| c.id).collect::<Vec<_>>()})
@@ -311,12 +333,27 @@ pub(crate) mod fake {
                         let fields = n["fields"].as_object().unwrap();
                         let first = fields.values().next().and_then(Value::as_str).unwrap_or("");
                         let dup = first_fields.iter().any(|(m, f)| *m == model && *f == first)
-                            || log.lock().unwrap().iter().any(|a| a["modelName"] == model && a["fields"].as_object().unwrap().values().next().and_then(Value::as_str) == Some(first));
+                            || log.lock().unwrap().iter().any(|a| {
+                                a["modelName"] == model
+                                    && a["fields"].as_object().and_then(|f| f.values().next()).and_then(Value::as_str) == Some(first)
+                            });
                         if dup {
                             json!([{"canAdd": false, "error": "cannot create note because it is a duplicate"}])
                         } else {
                             json!([{"canAdd": true}])
                         }
+                    }
+                    "updateNoteFields" => {
+                        let id = p["note"]["id"].as_i64().unwrap();
+                        for (k, v) in p["note"]["fields"].as_object().unwrap() {
+                            changed.insert((id, k.clone()), v.as_str().unwrap().to_string());
+                        }
+                        log.lock().unwrap().push(json!({"updateNoteFields": p["note"].clone()}));
+                        Value::Null
+                    }
+                    "addTags" => {
+                        log.lock().unwrap().push(json!({"addTags": p.clone()}));
+                        Value::Null
                     }
                     "addNote" => {
                         let mut l = log.lock().unwrap();

@@ -138,6 +138,7 @@ export interface SyncReport {
   suspended: number;
   overdue: number;
   note_types: { model_name: string; notes: number; words: number; phrases: number; empty_fields: number }[];
+  kanji: number;
 }
 
 export type Provider = "anthropic" | "open_router";
@@ -194,6 +195,28 @@ export interface ChatOutcome {
   /** The follow-up to paste when the reply wasn't good enough (and wasn't saved). */
   rewrite: string | null;
   saved: GenerateResult | null;
+}
+
+export interface KanjiMapping {
+  model_id: number;
+  model_name: string;
+  kanji_field: string;
+  keyword_field: string | null;
+  /** The mnemonic: the only field Ankura may change (ADR 0013). */
+  story_field: string | null;
+}
+
+export interface KanjiCard {
+  kanji: string;
+  info: { kanji: string; keyword: string; story: string; state: WordState; strength: number; notes: { note_id: number; model_id: number }[] } | null;
+  story_text: string;
+  words: { display: string; reading: string; state: WordState }[];
+  last_edit: { id: string; old: string; new: string; created_at: number } | null;
+}
+
+export interface NewStory {
+  story: string;
+  primitives: { component: string; name: string }[];
 }
 
 export interface Friction {
@@ -304,6 +327,15 @@ export const api = {
     invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),
   openClaudeAi: () => invoke<void>("open_claude_ai"),
 
+  kanjiMappings: () => invoke<KanjiMapping[]>("kanji_mappings"),
+  kanjiSuggest: (modelId: number, modelName: string, fields: string[]) =>
+    invoke<KanjiMapping | null>("kanji_suggest", { modelId, modelName, fields }),
+  saveKanjiMapping: (mapping: KanjiMapping) => invoke<void>("save_kanji_mapping", { mapping }),
+  deleteKanjiMapping: (modelId: number) => invoke<void>("delete_kanji_mapping", { modelId }),
+  kanjiCard: (kanji: string) => invoke<KanjiCard>("kanji_card", { kanji }),
+  kanjiNewStory: (kanji: string) => invoke<NewStory>("kanji_new_story", { kanji }),
+  kanjiSaveStory: (kanji: string, story: string) => invoke<number>("kanji_save_story", { kanji, story }),
+  kanjiUndoStory: (kanji: string) => invoke<number>("kanji_undo_story", { kanji }),
   recordReading: (chars: number) => invoke<void>("record_reading", { day: localDay(), chars }),
   readingStats: () => invoke<Stats>("reading_stats", { today: localDay() }),
   simplifySentence: (sentence: string) => invoke<Simplified>("simplify_sentence", { sentence }),

@@ -43,7 +43,12 @@ The sync report shows, per note type, how many notes gave a word, a phrase, or n
 ## Does Ankura change my collection?
 
 Ankura only ever **adds** notes, when you make [cards](cards.md), and tags them `ankura`. It never
-changes or deletes existing notes, cards, decks or note types. The AnkiConnect client refuses any
-other kind of request in code. (A planned kanji feature will be allowed to change one mnemonic
-field you choose, with your confirmation and an undo; see
-[ADR 0013](../adr/0013-kanji-and-rtk-mnemonics.md).)
+changes or deletes existing notes, cards, decks or note types, with one exception you control:
+the mnemonic field of your kanji notes, when you save a new story ([Kanji](kanji.md)), always
+confirmed, backed up and undoable. The AnkiConnect client refuses any other kind of request in
+code.
+
+## Kanji notes
+
+Kanji cards (keyword and mnemonic, RTK style) are mapped separately, under **Kanji notes**. See
+[Kanji](kanji.md).

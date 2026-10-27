@@ -1,6 +1,6 @@
 # 0013. Kanji: pop-up, RTK mnemonics, consistent primitives; editing one mnemonic field
 
-- Status: accepted (owner, 2026-10-27); not yet built
+- Status: accepted (owner, 2026-10-27); points 1-4 built 2026-10-27, point 5 not yet
 - Date: 2026-10-27
 - Deciders: owner, via AskUserQuestion
 - Amends: ADR 0007 (add-only writes)

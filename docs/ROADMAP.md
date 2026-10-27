@@ -62,9 +62,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
       matches a 気になる card).
 - [x] Stats: characters read per day, streaks, words met and looked up, "stealth leeches" (known
       in Anki, looked up again while reading) and most looked-up words, each with "+ card".
-- [ ] Kanji (ADR 0013): kanji note mapping, kanji pop-up (card, keyword, story, words with it),
-      new RTK-style mnemonics, consistent primitive names across the set; edits limited to the
-      mnemonic field, confirmed, backed up, undoable.
+- [x] Kanji (ADR 0013): kanji note mapping, kanji pop-up (card, keyword, story, words with it),
+      new RTK-style mnemonics; edits limited to the mnemonic field, confirmed, backed up, undoable.
+- [ ] Kanji: consistent primitive names across the set (ADR 0013 point 5).
 - [ ] Correctable furigana, card readings, counter sound changes (ADR 0008 consequences).
 - [ ] Interest profile: inferred from pasted texts, editable (weights, custom scenarios), steers
       generation.

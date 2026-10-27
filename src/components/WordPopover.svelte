@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api, stateLabel, type ReaderToken, type Simplified, type WordInfo, type WordState } from "../lib/api";
+  import KanjiPanel from "./KanjiPanel.svelte";
 
   let {
     token,
@@ -20,6 +21,11 @@
     sentence?: string;
     textId?: string | null;
   } = $props();
+
+  // --- kanji (ADR 0013) ---
+  const KANJI = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/u;
+  const kanjiChars = $derived([...new Set([...token.dictionary_form].filter((c) => KANJI.test(c)))]);
+  let openKanji = $state<string | null>(null);
 
   // --- "Simplify this sentence" ---
   let simple = $state<Simplified | null>(null);
@@ -128,6 +134,16 @@
     </p>
   {:else if !error}
     <p class="muted">Looking up…</p>
+  {/if}
+
+  {#if kanjiChars.length}
+    <div class="kanji-row">
+      <span class="muted small">Kanji:</span>
+      {#each kanjiChars as k}
+        <button class="kchip" class:on={openKanji === k} onclick={() => (openKanji = openKanji === k ? null : k)}>{k}</button>
+      {/each}
+    </div>
+    {#if openKanji}<KanjiPanel kanji={openKanji} onresize={place} />{/if}
   {/if}
 
   {#if sentence}
@@ -265,6 +281,21 @@
   .small {
     font-size: 0.82rem;
     margin: 0;
+  }
+  .kanji-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .kchip {
+    font-family: var(--font-read);
+    font-size: 1.05rem;
+    padding: 0.05em 0.5em;
+  }
+  .kchip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
   }
   .simplify {
     border-top: 1px solid var(--line);

@@ -11,6 +11,7 @@ setup → Anki mapping → sync → reading → word popover, checks results, an
 """
 import argparse
 import base64
+import http.client
 import json
 import os
 import subprocess
@@ -52,8 +53,17 @@ class Driver:
     def req(self, method, path, body=None):
         data = json.dumps(body).encode() if body is not None else None
         r = urllib.request.Request(self.url + path, data=data, method=method, headers={"Content-Type": "application/json"})
-        with OPENER.open(r, timeout=120) as resp:
-            return json.loads(resp.read())["value"]
+        # tauri-driver sometimes reuses a connection to WebKitWebDriver that was reset ("Connection
+        # reset by peer" in tauri-driver.log) and drops our request; it never reached the page.
+        for attempt in range(3):
+            try:
+                with OPENER.open(r, timeout=120) as resp:
+                    return json.loads(resp.read())["value"]
+            except (http.client.RemoteDisconnected, ConnectionResetError):
+                if attempt == 2:
+                    raise
+                print(f"driver dropped {method} {path}; retrying")
+                time.sleep(1)
 
     def s(self, method, path, body=None):
         return self.req(method, f"/session/{self.sid}{path}", body)
@@ -184,6 +194,20 @@ def main():
         d.shot(out / "02b-sentence-mapping.png")
         d.click(nt + "//button[normalize-space()='Save']")
         d.find(nt + "//span[normalize-space()='mapped']")
+        # Kanji notes (ADR 0013): pick the note type, check the suggested fields, save.
+        d.js(
+            "const s = [...document.querySelectorAll('select')].find(x => x.getAttribute('aria-label') === 'Add a kanji note type');"
+            "s.value = [...s.options].find(o => o.text.startsWith('Kanji (RTK)')).value; s.dispatchEvent(new Event('change', {bubbles: true}));"
+        )
+        km = "//div[contains(@class,'kanji-map')][.//strong[text()='Kanji (RTK)']]"
+        d.find(km)
+        picked = d.js(
+            "return [...document.querySelectorAll('.kanji-map select')].map(s => s.value)"
+        )
+        print("kanji fields:", picked)
+        assert picked == ["Kanji", "Keyword", "Story"], picked
+        d.click(km + "//button[normalize-space()='Save']")
+        d.find(km + "//span[normalize-space()='mapped']")
         d.click("//button[normalize-space()='Sync now']")
         report = d.text("//p[contains(., 'Read ') and contains(., 'cards')]", timeout=60)
         per_type = d.text("//table[contains(@class,'per-type')]")
@@ -357,6 +381,29 @@ def main():
         d.click("//div[@role='dialog']//button[normalize-space()='I know this']")
         merged = "//span[contains(@class,'tok') and contains(@class,'st-marked_known') and contains(., '気分') and contains(., 'かった')]"
         print("merged phrase:", d.text(merged))
+
+        # Kanji pop-up: 猫's card, a new mnemonic saved to Anki (story field only), then undone.
+        d.click("//span[contains(@class,'tok') and contains(., '猫')]")
+        d.click("//div[@role='dialog']//button[contains(@class,'kchip') and normalize-space()='猫']")
+        d.find("//div[@role='dialog']//span[contains(@class,'kw') and normalize-space()='cat']")
+        d.click("//div[@role='dialog']//button[normalize-space()='Show story']")
+        d.find("//div[@role='dialog']//p[contains(@class,'story')]")
+        story = d.js("return document.querySelector('[role=dialog] p.story').textContent")  # may be scrolled out of view
+        assert "crouches" in story, story
+        d.click("//div[@role='dialog']//button[normalize-space()='New mnemonic']")
+        d.find("//div[@role='dialog']//div[contains(@class,'compare')]", timeout=60)
+        d.shot(out / "13b-kanji.png")
+        d.click("//div[@role='dialog']//button[normalize-space()='Save to Anki']")
+        saved = d.text("//div[@role='dialog']//p[contains(@class,'ok')]", timeout=30)
+        updates = json.loads(OPENER.open("http://127.0.0.1:8765/updates").read())
+        print("kanji saved:", saved, "| updates:", updates)
+        assert [list(u["fields"]) for u in updates if "fields" in u] == [["Story"]], updates
+        assert any(u.get("addTags", {}).get("tags") == "ankura-edited" for u in updates), updates
+        d.click("//div[@role='dialog']//button[normalize-space()=\"Undo Ankura's change\"]")
+        d.find("//div[@role='dialog']//p[contains(@class,'ok') and contains(., 'old story')]")
+        updates = json.loads(OPENER.open("http://127.0.0.1:8765/updates").read())
+        assert "crouches" in [u for u in updates if "fields" in u][-1]["fields"]["Story"], updates
+        d.js("document.querySelector('.backdrop').click()")
 
         d.click("//nav//button[normalize-space()='Cards']")
         d.find("//section[contains(@class,'draft')][2]//textarea", timeout=60)  # both filled in

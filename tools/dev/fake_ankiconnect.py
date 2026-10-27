@@ -12,7 +12,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VOCAB = ("日本語コア", 1001, ["Vocab", "Reading", "Meaning", "Sentence"])
-KANJI = ("Kanji (RTK)", 1002, ["Kanji", "Keyword"])
+KANJI = ("Kanji (RTK)", 1002, ["Kanji", "Keyword", "Story"])
 # Sentence cards: the word is marked in the sentence, the reading field starts with the word's reading.
 SENTENCES = ("Satzkarten", 1003, ["Original sentence", "Reading", "Definition"])
 SENTENCE_NOTES = [
@@ -99,17 +99,22 @@ def build():
         cid += 1
         card = {"id": cid, "deck": "日本語::文", "flags": set(), "stability": s, "recall": 0.95, "interval": int(s)}
         notes.append({"id": nid, "model": SENTENCES, "fields": [sentence, reading, meaning], "cards": [card]})
-    for kanji, keyword, s in [("猫", "cat", 200.0), ("駅", "station", 90.0)]:
+    for kanji, keyword, story, s in [
+        ("猫", "cat", "A <b>cat</b> crouches in the grass by the rice field.", 200.0),
+        ("駅", "station", "A horse waits at the <b>station</b> for its rider.", 90.0),
+    ]:
         nid += 1
         cid += 1
         card = {"id": cid, "deck": "Kanji", "flags": set(), "stability": s, "recall": 0.95, "interval": int(s)}
-        notes.append({"id": nid, "model": KANJI, "fields": [kanji, keyword], "cards": [card]})
+        notes.append({"id": nid, "model": KANJI, "fields": [kanji, keyword, story], "cards": [card]})
     return notes
 
 
 NOTES = build()
-# Notes added through addNote (served at GET /added for tests).
+# Notes added through addNote, and changes through updateNoteFields / addTags (GET /added and
+# GET /updates, for tests).
 ADDED = []
+UPDATES = []
 
 
 def tokens(q):
@@ -213,6 +218,15 @@ def act(action, p):
         ADDED.append({"id": nid, "model": model, "fields": [note["fields"].get(f, "") for f in model[2]],
                       "deck": note["deckName"], "tags": note["tags"], "cards": []})
         return nid
+    if action == "updateNoteFields":
+        note = next(n for n in NOTES + ADDED if n["id"] == p["note"]["id"])
+        for field, value in p["note"]["fields"].items():
+            note["fields"][note["model"][2].index(field)] = value
+        UPDATES.append(p["note"])
+        return None
+    if action == "addTags":
+        UPDATES.append({"addTags": p})
+        return None
     if action == "getIntervals":
         by_id = {c["id"]: c for n in NOTES for c in n["cards"]}
         return [by_id[i]["interval"] for i in p["cards"]]
@@ -221,7 +235,7 @@ def act(action, p):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        data = json.dumps(ADDED, ensure_ascii=False).encode()
+        data = json.dumps(UPDATES if self.path == "/updates" else ADDED, ensure_ascii=False).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))

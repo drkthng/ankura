@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
+use ankura_core::kanji;
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -507,6 +508,68 @@ fn open_claude_ai() -> CmdResult<()> {
     cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the browser ({e}); go to {URL} yourself"))
 }
 
+// --- kanji (ADR 0013) ---
+
+#[tauri::command]
+async fn kanji_mappings(app: AppHandle) -> CmdResult<Vec<kanji::KanjiMapping>> {
+    blocking(app, |s| kanji::mappings(&s.store()).map_err(err)).await
+}
+
+#[tauri::command]
+async fn kanji_suggest(app: AppHandle, model_id: i64, model_name: String, fields: Vec<String>) -> CmdResult<Option<kanji::KanjiMapping>> {
+    blocking(app, move |s| {
+        let anki = s.anki();
+        let mut ids = anki.find_notes(&format!("mid:{model_id}")).map_err(err)?;
+        ids.truncate(30);
+        let samples: Vec<_> = anki.notes_info(&ids).map_err(err)?.into_iter().map(|n| n.fields).collect();
+        Ok(kanji::suggest_mapping(model_id, &model_name, &fields, &samples))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn save_kanji_mapping(app: AppHandle, mapping: kanji::KanjiMapping) -> CmdResult<()> {
+    blocking(app, move |s| kanji::save_mapping(&s.store(), &mapping).map_err(err)).await
+}
+
+#[tauri::command]
+async fn delete_kanji_mapping(app: AppHandle, model_id: i64) -> CmdResult<()> {
+    blocking(app, move |s| kanji::delete_mapping(&s.store(), model_id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn kanji_card(app: AppHandle, kanji: String) -> CmdResult<kanji::KanjiCard> {
+    blocking(app, move |s| kanji::card(&s.store(), &kanji).map_err(err)).await
+}
+
+#[tauri::command]
+async fn kanji_new_story(app: AppHandle, kanji: String) -> CmdResult<kanji::NewStory> {
+    blocking(app, move |s| {
+        let llm = s.llm()?;
+        kanji::new_story(&s.own_store()?, &llm, &kanji).map_err(err)
+    })
+    .await
+}
+
+/// Writes a story the user confirmed (ADR 0013: mnemonic field only, backed up, undoable).
+#[tauri::command]
+async fn kanji_save_story(app: AppHandle, kanji: String, story: String) -> CmdResult<usize> {
+    blocking(app, move |s| {
+        let anki = s.anki(); // before locking the store
+        kanji::save_story(&s.store(), &anki, &kanji, &story).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn kanji_undo_story(app: AppHandle, kanji: String) -> CmdResult<usize> {
+    blocking(app, move |s| {
+        let anki = s.anki();
+        kanji::undo_story(&s.store(), &anki, &kanji).map_err(err)
+    })
+    .await
+}
+
 // --- stats (ROADMAP M3) ---
 
 /// Characters read in a paragraph that counted as read; `day` is the user's local date.
@@ -719,6 +782,14 @@ pub fn run() {
             open_claude_ai,
             simplify_sentence,
             record_reading,
+            kanji_mappings,
+            kanji_suggest,
+            save_kanji_mapping,
+            delete_kanji_mapping,
+            kanji_card,
+            kanji_new_story,
+            kanji_save_story,
+            kanji_undo_story,
             reading_stats,
             phrase_info,
             card_options,

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::anki::{AnkiSource, NoteInfo};
 use crate::kana::{has_kanji, is_all_kana, to_hiragana};
 use crate::knowledge::{CardFacts, KnowledgeSettings};
-use crate::normalize::{clean_field, marked_text};
+use crate::kanji;
+use crate::normalize::{clean_field, marked_text, plain_text};
 use crate::reader::phrase_form;
 use crate::store::{NoteTypeMapping, Store, TargetMode};
 use crate::tokenize::{TokenKind, Tokenizer};
@@ -321,6 +322,9 @@ pub struct SyncReport {
     /// Review cards overdue by 30 days or more.
     pub overdue: usize,
     pub note_types: Vec<NoteTypeReport>,
+    /// Kanji read from the kanji note types (ADR 0013).
+    #[serde(default)]
+    pub kanji: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -365,16 +369,24 @@ pub fn sync_anki(
     extra_query: &str,
 ) -> Result<SyncReport> {
     let mappings = store.mappings()?;
+    let kanji_maps = kanji::mappings(store)?;
     let mut report = SyncReport::default();
     let mut cards: Vec<(i64, CardFacts)> = Vec::new();
     let mut card_keys: Vec<(i64, WordKey)> = Vec::new();
     let mut displays: HashMap<WordKey, String> = HashMap::new();
-    if mappings.is_empty() {
+    if mappings.is_empty() && kanji_maps.is_empty() {
         store.replace_anki_snapshot(&cards, &card_keys, &displays, settings)?;
+        kanji::replace_kanji(store, &[], settings)?;
         return Ok(report);
     }
 
-    let mids = mappings.iter().map(|m| format!("mid:{}", m.model_id)).collect::<Vec<_>>().join(" OR ");
+    let mids = mappings
+        .iter()
+        .map(|m| m.model_id)
+        .chain(kanji_maps.iter().map(|m| m.model_id))
+        .map(|id| format!("mid:{id}"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
     let base = if extra_query.trim().is_empty() { format!("({mids})") } else { format!("({mids}) {}", extra_query.trim()) };
     let set = |q: &str| -> Result<HashSet<i64>> { Ok(anki.find_cards(&format!("{base} {q}"))?.into_iter().collect()) };
     let new = set("is:new")?;
@@ -398,7 +410,37 @@ pub fn sync_anki(
     }
     report.suspended = suspended.len();
     let in_scope: HashSet<i64> = anki.find_cards(&base)?.into_iter().collect();
+    // What Anki says about one card; the second value is how many days overdue it is.
+    let facts = |card_id: i64, note_id: i64, interval: i64| -> (CardFacts, i64) {
+        let card_type = if new.contains(&card_id) {
+            0
+        } else if learn.contains(&card_id) {
+            1
+        } else {
+            2
+        };
+        let queue = if suspended.contains(&card_id) {
+            -1
+        } else if buried.contains(&card_id) {
+            -2
+        } else {
+            card_type
+        };
+        let interval = interval.max(0);
+        let late = overdue.get(&card_id).copied().unwrap_or(0);
+        let (stability, retrievability) = if card_type == 0 {
+            (None, None)
+        } else if report.fsrs {
+            (Some(stab.get(&card_id).copied().unwrap_or(0.0)), Some(retr.get(&card_id).copied().unwrap_or(0.0)))
+        } else if card_type == 2 {
+            (None, Some(sm2_retrievability(interval, late)))
+        } else {
+            (None, None)
+        };
+        (CardFacts { card_id, note_id, card_type, queue, interval, lapses: 0, stability, retrievability }, late)
+    };
 
+    let mut overdue_cards = 0;
     for m in &mappings {
         let mut per_type = NoteTypeReport { model_name: m.model_name.clone(), ..Default::default() };
         let note_ids = anki.find_notes(&format!("mid:{}", m.model_id))?;
@@ -419,47 +461,11 @@ pub fn sync_anki(
                 per_type.notes += 1;
             }
             for &card_id in n.cards.iter().filter(|c| in_scope.contains(c)) {
-                let card_type = if new.contains(&card_id) {
-                    0
-                } else if learn.contains(&card_id) {
-                    1
-                } else {
-                    2
-                };
-                let queue = if suspended.contains(&card_id) {
-                    -1
-                } else if buried.contains(&card_id) {
-                    -2
-                } else {
-                    card_type
-                };
-                let interval = intervals.get(&card_id).copied().unwrap_or(0).max(0);
-                let late = overdue.get(&card_id).copied().unwrap_or(0);
+                let (f, late) = facts(card_id, n.note_id, intervals.get(&card_id).copied().unwrap_or(0));
                 if late >= 30 {
-                    report.overdue += 1;
+                    overdue_cards += 1;
                 }
-                let (stability, retrievability) = if card_type == 0 {
-                    (None, None)
-                } else if report.fsrs {
-                    (Some(stab.get(&card_id).copied().unwrap_or(0.0)), Some(retr.get(&card_id).copied().unwrap_or(0.0)))
-                } else if card_type == 2 {
-                    (None, Some(sm2_retrievability(interval, late)))
-                } else {
-                    (None, None)
-                };
-                cards.push((
-                    m.model_id,
-                    CardFacts {
-                        card_id,
-                        note_id: n.note_id,
-                        card_type,
-                        queue,
-                        interval,
-                        lapses: 0,
-                        stability,
-                        retrievability,
-                    },
-                ));
+                cards.push((m.model_id, f));
                 for (k, d) in fk.keys.iter().zip(&fk.displays) {
                     card_keys.push((card_id, k.clone()));
                     displays.entry(k.clone()).or_insert_with(|| d.clone());
@@ -472,8 +478,34 @@ pub fn sync_anki(
         report.empty_fields += per_type.empty_fields;
         report.note_types.push(per_type);
     }
+    // Kanji notes (ADR 0013): one row per kanji, its state from the strongest card.
+    let mut kanji_notes = Vec::new();
+    for km in &kanji_maps {
+        let notes = anki.notes_info(&anki.find_notes(&format!("mid:{}", km.model_id))?)?;
+        let note_cards: Vec<i64> = notes.iter().flat_map(|n| n.cards.iter().copied()).filter(|c| in_scope.contains(c)).collect();
+        let intervals: HashMap<i64, i64> = note_cards.iter().copied().zip(anki.intervals(&note_cards)?).collect();
+        for n in &notes {
+            let Some(k) = n.fields.get(&km.kanji_field).and_then(|v| kanji::kanji_of(v)) else { continue };
+            let field = |f: &Option<String>| f.as_ref().and_then(|f| n.fields.get(f)).cloned().unwrap_or_default();
+            kanji_notes.push(kanji::KanjiNoteFacts {
+                model_id: km.model_id,
+                note_id: n.note_id,
+                kanji: k,
+                keyword: plain_text(&field(&km.keyword_field)),
+                story: field(&km.story_field),
+                cards: n
+                    .cards
+                    .iter()
+                    .filter(|c| in_scope.contains(c))
+                    .map(|&c| facts(c, n.note_id, intervals.get(&c).copied().unwrap_or(0)).0)
+                    .collect(),
+            });
+        }
+    }
+    report.overdue = overdue_cards;
     report.cards = cards.len();
     store.replace_anki_snapshot(&cards, &card_keys, &displays, settings)?;
+    report.kanji = kanji::replace_kanji(store, &kanji_notes, settings)?;
     Ok(report)
 }
 
@@ -592,6 +624,35 @@ mod tests {
         let k = keys_for_note(t, &m, &fields("ただの<b>脱水症状</b>だった。", "")).unwrap();
         assert_eq!(k.outcome, FieldOutcome::Phrase, "{k:?}");
         assert!(k.keys.iter().any(|x| x.lemma == "脱水") && k.keys.iter().any(|x| x.lemma == "症状"), "{k:?}");
+    }
+
+    #[test]
+    fn sync_reads_kanji_notes() {
+        let Some(t) = sudachi() else { return };
+        let card = |id, interval| vec![FakeCard { id, interval, flags: &["review"], stability: None, retrievability: None, overdue: 0 }];
+        let url = serve(vec![
+            FakeNote { id: 1, model: ("Kanji", 5), fields: vec![("Kanji", "<div>明</div>"), ("Keyword", "<b>bright</b>"), ("Story", "Sun + moon.")], cards: card(11, 40) },
+            FakeNote { id: 2, model: ("Kanji reverse", 6), fields: vec![("Kanji", "明"), ("Keyword", "bright"), ("Story", "Sun + moon.")], cards: card(12, 3) },
+            FakeNote { id: 3, model: ("Kanji", 5), fields: vec![("Kanji", "（空）"), ("Keyword", "sky"), ("Story", "")], cards: card(13, 40) },
+            FakeNote { id: 4, model: ("Kanji", 5), fields: vec![("Kanji", "ー"), ("Keyword", "long vowel"), ("Story", "")], cards: card(14, 40) },
+        ]);
+        let mut s = Store::open_in_memory().unwrap();
+        for (id, name) in [(5, "Kanji"), (6, "Kanji reverse")] {
+            kanji::save_mapping(&s, &kanji::KanjiMapping {
+                model_id: id,
+                model_name: name.into(),
+                kanji_field: "Kanji".into(),
+                keyword_field: Some("Keyword".into()),
+                story_field: Some("Story".into()),
+            })
+            .unwrap();
+        }
+        let r = sync_anki(&AnkiConnect::new(&url), t, &mut s, &KnowledgeSettings::default(), "").unwrap();
+        // 明 (in both note types, one kanji) and 空; the note without a kanji is skipped.
+        assert_eq!(r.kanji, 2, "{r:?}");
+        assert_eq!(kanji::get(&s, "空").unwrap().unwrap().keyword, "sky");
+        let k = kanji::get(&s, "明").unwrap().unwrap();
+        assert_eq!((k.keyword.as_str(), k.state, k.notes.len()), ("bright", WordState::Known, 2));
     }
 
     #[test]

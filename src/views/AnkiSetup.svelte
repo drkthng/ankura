@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type MappingPreview, type NoteType, type Status, type SyncReport, type TargetMode } from "../lib/api";
+  import { api, type KanjiMapping, type MappingPreview, type NoteType, type Status, type SyncReport, type TargetMode } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
@@ -23,6 +23,40 @@
     error: string;
   };
   let drafts = $state<Record<number, Draft>>({});
+
+  // --- kanji note types (ADR 0013) ---
+  let kanjiMaps = $state<KanjiMapping[]>([]);
+  /** Kanji mappings being edited (unsaved), by note type ID. */
+  let kanjiEdit = $state<Record<number, KanjiMapping>>({});
+  let kanjiMsg = $state("");
+  let addKanjiType = $state("");
+  async function loadKanji() {
+    kanjiMaps = await api.kanjiMappings();
+    kanjiEdit = Object.fromEntries(kanjiMaps.map((m) => [m.model_id, { ...m }]));
+  }
+  async function startKanji(id: string) {
+    const nt = noteTypes.find((n) => String(n.id) === id);
+    addKanjiType = "";
+    if (!nt) return;
+    const s = await api.kanjiSuggest(nt.id, nt.name, nt.fields).catch(() => null);
+    kanjiEdit = {
+      ...kanjiEdit,
+      [nt.id]: s ?? { model_id: nt.id, model_name: nt.name, kanji_field: nt.fields[0], keyword_field: null, story_field: null },
+    };
+    kanjiMsg = s ? "Fields suggested from your notes; check them and save." : "";
+  }
+  async function saveKanji(m: KanjiMapping) {
+    await api.saveKanjiMapping(m);
+    await loadKanji();
+    kanjiMsg = `${m.model_name} saved. Sync to read its kanji.`;
+  }
+  async function removeKanji(id: number) {
+    await api.deleteKanjiMapping(id);
+    const { [id]: _, ...rest } = kanjiEdit;
+    kanjiEdit = rest;
+    await loadKanji();
+  }
+  const fieldsOf = (id: number) => noteTypes.find((n) => n.id === id)?.fields ?? [];
 
   let syncing = $state(false);
   let report = $state<SyncReport | null>(null);
@@ -54,6 +88,7 @@
     loadingTypes = true;
     try {
       noteTypes = await api.ankiNoteTypes();
+      await loadKanji().catch(() => {});
       const d: Record<number, Draft> = {};
       for (const nt of noteTypes) {
         d[nt.id] = {
@@ -279,18 +314,55 @@
     </section>
 
     <section class="card">
+      <h2>Kanji notes <span class="muted small">· optional</span></h2>
+      <p class="muted">
+        If you learn kanji with their own cards (keyword and mnemonic, like Remembering the Kanji), tell Ankura where
+        they are. The reader then shows your kanji card for every kanji, and can write a new mnemonic when one doesn't
+        stick. Ankura may change only the field you choose as the mnemonic, and only after you confirm.
+      </p>
+      {#each Object.values(kanjiEdit) as m (m.model_id)}
+        <div class="kanji-map">
+          <strong>{m.model_name}</strong>
+          {#if kanjiMaps.some((k) => k.model_id === m.model_id)}<span class="pill">mapped</span>{/if}
+          <div class="grid3">
+            <label>Kanji
+              <select bind:value={m.kanji_field}>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
+            </label>
+            <label>Keyword
+              <select bind:value={m.keyword_field}><option value={null}>(none)</option>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
+            </label>
+            <label>Mnemonic
+              <select bind:value={m.story_field}><option value={null}>(none)</option>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
+            </label>
+          </div>
+          <div class="row">
+            <button onclick={() => saveKanji(m)}>Save</button>
+            <button class="ghost danger" onclick={() => removeKanji(m.model_id)}>Remove</button>
+          </div>
+        </div>
+      {/each}
+      <div class="row">
+        <select bind:value={addKanjiType} onchange={(e) => startKanji(e.currentTarget.value)} aria-label="Add a kanji note type">
+          <option value="">Add a kanji note type…</option>
+          {#each noteTypes.filter((n) => !kanjiEdit[n.id]) as n}<option value={String(n.id)}>{n.name} ({n.notes})</option>{/each}
+        </select>
+        {#if kanjiMsg}<span class="muted small">{kanjiMsg}</span>{/if}
+      </div>
+    </section>
+
+    <section class="card">
       <h2>3. Sync</h2>
       <p class="muted">
         Optional: limit to part of your collection with an Anki search, for example <code>deck:日本語*</code>.
       </p>
       <div class="row">
         <input class="query" bind:value={query} placeholder="Anki search (optional)" />
-        <button class="primary" onclick={sync} disabled={syncing || saving > 0 || mappedCount === 0}>{syncing ? "Syncing…" : "Sync now"}</button>
+        <button class="primary" onclick={sync} disabled={syncing || saving > 0 || (mappedCount === 0 && kanjiMaps.length === 0)}>{syncing ? "Syncing…" : "Sync now"}</button>
       </div>
       {#if syncError}<p class="error">{syncError}</p>{/if}
       {#if report}
         <p class="ok">
-          Read {report.cards.toLocaleString()} cards from {report.notes.toLocaleString()} notes.
+          Read {report.cards.toLocaleString()} cards from {report.notes.toLocaleString()} notes{report.kanji ? `, and ${report.kanji.toLocaleString()} kanji` : ""}.
           {report.fsrs
             ? "FSRS is on, so Ankura uses Anki's own recall estimates."
             : `FSRS is off, so Ankura estimates recall from each card's interval and how overdue it is (${report.overdue.toLocaleString()} cards are 30+ days overdue; those you've likely forgotten show as fading).`}
@@ -330,6 +402,25 @@
 </div>
 
 <style>
+  .kanji-map {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    margin-bottom: 0.7rem;
+  }
+  .grid3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.6rem;
+    margin: 0.5rem 0;
+  }
+  .grid3 label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
   .page {
     max-width: 920px;
     margin: 0 auto;

@@ -79,6 +79,15 @@ static RE_MARKED: LazyLock<[Regex; 6]> = LazyLock::new(|| {
 
 /// The bold, italic or underlined parts of a field, in field order (raw HTML inside each part).
 /// Sentence cards often mark the word they teach this way: `<b>長篠</b>の戦いは…`.
+/// A field as plain text: line breaks kept, tags, audio and entities removed.
+pub fn plain_text(raw: &str) -> String {
+    let s = RE_SOUND.replace_all(raw, "");
+    let s = RE_BREAK.replace_all(&s, "\n");
+    let s = RE_TAG.replace_all(&s, "");
+    let s = decode_entities(&s);
+    s.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
 pub fn marked_text(raw: &str) -> Vec<String> {
     let mut found: Vec<(usize, usize, String)> = Vec::new();
     for re in RE_MARKED.iter() {

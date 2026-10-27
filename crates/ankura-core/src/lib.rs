@@ -6,6 +6,7 @@ pub mod cards;
 pub mod dict;
 pub mod furigana;
 pub mod generate;
+pub mod kanji;
 pub mod kana;
 pub mod knowledge;
 pub mod llm;
