@@ -18,7 +18,8 @@ notes.
   → [Reading](docs/guide/reading.md)
 - **Works with any Anki collection.** Point Ankura at the field that holds the word, even the bold
   word in a sentence card. It reads your cards' intervals (or FSRS memory) and knows which words
-  are solid and which are fading. Your cards are never changed. → [Connecting Anki](docs/guide/anki.md)
+  are solid and which are fading. Ankura only adds
+  cards; the one exception, a kanji mnemonic, changes only when you confirm it. → [Connecting Anki](docs/guide/anki.md)
 - **Texts written for you.** Pick a few words to practise. Ankura asks the AI for a short story
   that uses them, about topics you like, checks that at least 95% of its words are ones you know,
   and asks for a rewrite if not. → [Write for me](docs/guide/write-for-me.md)
