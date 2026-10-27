@@ -158,7 +158,8 @@ pub fn suggest_mapping(model_id: i64, model_name: &str, fields: &[String], sampl
     };
     let one_kanji = |v: &str| {
         let t = plain_text(v);
-        t.chars().filter(|c| is_kanji(*c)).count() == 1 && t.chars().count() <= 3
+        // The kanji alone, or with a little extra ("漢 (kan)", "#123 漢").
+        t.chars().filter(|c| is_kanji(*c)).count() == 1 && t.chars().count() <= 10
     };
     let kanji_field = fields.iter().find(|f| share(f, &one_kanji) >= 0.8)?.clone();
     let avg_len = |f: &String| {
@@ -464,6 +465,13 @@ mod tests {
         let m = suggest_mapping(6, "Kanji reverse", &names, &samples).unwrap();
         assert_eq!((m.kanji_field.as_str(), m.keyword_field.as_deref(), m.story_field.as_deref()), ("Vorderseite", Some("Rückseite"), Some("Notiz")));
         assert_eq!(kanji_of("<b>猫</b>&nbsp;"), Some("猫".into()));
+        // A kanji field with a frame number.
+        let names: Vec<String> = ["Frame", "Kanji", "Keyword", "Story"].iter().map(|s| s.to_string()).collect();
+        let samples = vec![
+            fields(&["Frame", "Kanji", "Keyword", "Story"], &["12", "#12 明", "bright", "Sun and moon together make something bright."]),
+            fields(&["Frame", "Kanji", "Keyword", "Story"], &["13", "#13 猫", "cat", "A beast with grass on its head in the rice field."]),
+        ];
+        assert_eq!(suggest_mapping(7, "RTK", &names, &samples).unwrap().kanji_field, "Kanji");
     }
 
     fn setup() -> (Store, AnkiConnect, std::sync::Arc<Mutex<Vec<Value>>>) {

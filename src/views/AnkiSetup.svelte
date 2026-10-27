@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { api, type KanjiMapping, type MappingPreview, type NoteType, type Status, type SyncReport, type TargetMode } from "../lib/api";
 
-  let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
+  let { status, onchange, focus = "" }: { status: Status | null; onchange: () => void; focus?: string } = $props();
 
   let url = $state("");
   let query = $state("");
@@ -34,28 +34,42 @@
     kanjiMaps = await api.kanjiMappings();
     kanjiEdit = Object.fromEntries(kanjiMaps.map((m) => [m.model_id, { ...m }]));
   }
+  let kanjiError = $state("");
+  let kanjiSection: HTMLElement | undefined = $state();
+  /** Picking a kanji note type saves it straight away (with suggested fields); so does every change. */
   async function startKanji(id: string) {
     const nt = noteTypes.find((n) => String(n.id) === id);
     addKanjiType = "";
     if (!nt) return;
+    if (kanjiEdit[nt.id]) return;
+    kanjiMsg = "Looking at your notes…";
     const s = await api.kanjiSuggest(nt.id, nt.name, nt.fields).catch(() => null);
-    kanjiEdit = {
-      ...kanjiEdit,
-      [nt.id]: s ?? { model_id: nt.id, model_name: nt.name, kanji_field: nt.fields[0], keyword_field: null, story_field: null },
-    };
-    kanjiMsg = s ? "Fields suggested from your notes; check them and save." : "";
+    const m = s ?? { model_id: nt.id, model_name: nt.name, kanji_field: nt.fields[0], keyword_field: null, story_field: null };
+    await saveKanji(m, s ? "Saved with the fields Ankura found; check them below. Then sync." : "Saved; pick the fields below, then sync.");
+    kanjiSection?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  async function saveKanji(m: KanjiMapping) {
-    await api.saveKanjiMapping(m);
-    await loadKanji();
-    kanjiMsg = `${m.model_name} saved. Sync to read its kanji.`;
+  async function saveKanji(m: KanjiMapping, msg = "") {
+    kanjiError = "";
+    try {
+      await api.saveKanjiMapping({ ...m });
+      await loadKanji();
+      kanjiMsg = msg || `✓ ${m.model_name} saved. Sync to read its kanji.`;
+    } catch (e) {
+      kanjiError = `Couldn't save ${m.model_name}: ${e}`;
+    }
   }
   async function removeKanji(id: number) {
-    await api.deleteKanjiMapping(id);
-    const { [id]: _, ...rest } = kanjiEdit;
-    kanjiEdit = rest;
-    await loadKanji();
+    try {
+      await api.deleteKanjiMapping(id);
+      const { [id]: _, ...rest } = kanjiEdit;
+      kanjiEdit = rest;
+      await loadKanji();
+      kanjiMsg = "Removed.";
+    } catch (e) {
+      kanjiError = String(e);
+    }
   }
+  const looksLikeKanji = (name: string) => /kanji|漢字|rtk|heisig/i.test(name);
   const fieldsOf = (id: number) => noteTypes.find((n) => n.id === id)?.fields ?? [];
 
   let syncing = $state(false);
@@ -89,6 +103,7 @@
     try {
       noteTypes = await api.ankiNoteTypes();
       await loadKanji().catch(() => {});
+      if (focus === "kanji") requestAnimationFrame(() => kanjiSection?.scrollIntoView({ behavior: "smooth", block: "start" }));
       const d: Record<number, Draft> = {};
       for (const nt of noteTypes) {
         d[nt.id] = {
@@ -255,9 +270,16 @@
                   <strong>{nt.name}</strong>
                   <span class="muted">{nt.notes.toLocaleString()} notes</span>
                   {#if nt.mapping}<span class="pill mapped-pill">mapped</span>{/if}
+                  {#if kanjiEdit[nt.id]}<span class="pill">kanji notes</span>{/if}
                 </div>
                 <button class="ghost" onclick={() => suggest(nt)} disabled={d.busy}>Suggest fields</button>
               </div>
+              {#if looksLikeKanji(nt.name) && !kanjiEdit[nt.id] && !nt.mapping}
+                <p class="kanji-hint">
+                  Kanji cards (keyword and mnemonic)? Those are set up under <strong>Kanji notes</strong>, not here.
+                  <button class="primary" onclick={() => startKanji(String(nt.id))}>Use as kanji notes</button>
+                </p>
+              {/if}
               <div class="row">
                 <label>Word
                   <select bind:value={d.mode} disabled={!d.target} title="Where in the field the word is">
@@ -314,7 +336,7 @@
     </section>
 
     <section class="card">
-      <h2>Kanji notes <span class="muted small">· optional</span></h2>
+      <h2 bind:this={kanjiSection}>Kanji notes <span class="muted small">· optional</span></h2>
       <p class="muted">
         If you learn kanji with their own cards (keyword and mnemonic, like Remembering the Kanji), tell Ankura where
         they are. The reader then shows your kanji card for every kanji, and can write a new mnemonic when one doesn't
@@ -326,17 +348,17 @@
           {#if kanjiMaps.some((k) => k.model_id === m.model_id)}<span class="pill">mapped</span>{/if}
           <div class="grid3">
             <label>Kanji
-              <select bind:value={m.kanji_field}>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
+              <select bind:value={m.kanji_field} onchange={() => saveKanji(m)}>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
             </label>
             <label>Keyword
-              <select bind:value={m.keyword_field}><option value={null}>(none)</option>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
+              <select bind:value={m.keyword_field} onchange={() => saveKanji(m)}><option value={null}>(none)</option>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
             </label>
             <label>Mnemonic
-              <select bind:value={m.story_field}><option value={null}>(none)</option>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
+              <select bind:value={m.story_field} onchange={() => saveKanji(m)}><option value={null}>(none)</option>{#each fieldsOf(m.model_id) as f}<option value={f}>{f}</option>{/each}</select>
             </label>
           </div>
           <div class="row">
-            <button onclick={() => saveKanji(m)}>Save</button>
+            <span class="muted small">Changes save automatically.</span>
             <button class="ghost danger" onclick={() => removeKanji(m.model_id)}>Remove</button>
           </div>
         </div>
@@ -346,7 +368,8 @@
           <option value="">Add a kanji note type…</option>
           {#each noteTypes.filter((n) => !kanjiEdit[n.id]) as n}<option value={String(n.id)}>{n.name} ({n.notes})</option>{/each}
         </select>
-        {#if kanjiMsg}<span class="muted small">{kanjiMsg}</span>{/if}
+        {#if kanjiMsg}<span class="small ok">{kanjiMsg}</span>{/if}
+        {#if kanjiError}<span class="small error">{kanjiError}</span>{/if}
       </div>
     </section>
 
@@ -402,6 +425,16 @@
 </div>
 
 <style>
+  .kanji-hint {
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.9rem;
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
+    justify-content: space-between;
+  }
   .kanji-map {
     border: 1px solid var(--line);
     border-radius: 8px;

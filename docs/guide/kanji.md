@@ -10,10 +10,12 @@ read and help when a story doesn't stick.
 
 ## Setting up
 
-On the **Anki** screen, under **Kanji notes**, choose your kanji note type from *Add a kanji note
-type…*. Ankura suggests which field holds the kanji, the keyword and the mnemonic; check them and
-**Save**. Map both note types if you have two (say, kanji → keyword and keyword → kanji). A kanji
-in both counts once, and its strongest card decides how well you know it. Then **Sync now**.
+On the **Anki** screen, your kanji note types (names with "Kanji" in them) show a **Use as kanji
+notes** button; or choose one under **Kanji notes** → *Add a kanji note type…*. Ankura saves it
+straight away with the fields it found for the kanji, the keyword and the mnemonic. Check them
+under **Kanji notes**; any change you make there is saved as well. Add both note types if you have
+two (say, kanji → keyword and keyword → kanji). A kanji in both counts once, and its strongest card
+decides how well you know it. Then **Sync now**: the sync report says how many kanji it read.
 
 ## In the reader
 

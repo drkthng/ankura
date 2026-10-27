@@ -11,7 +11,7 @@
   import KanjiView from "./views/Kanji.svelte";
   import TestView from "./views/Test.svelte";
 
-  type View = { name: "library" } | { name: "reader"; id: string } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "anki" } | { name: "settings" };
+  type View = { name: "library" } | { name: "reader"; id: string } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "anki"; focus?: string } | { name: "settings" };
 
   let view = $state<View>({ name: "library" });
   let status = $state<Status | null>(null);
@@ -73,11 +73,11 @@
     {:else if view.name === "stats"}
       <StatsView />
     {:else if view.name === "kanji"}
-      <KanjiView ongo={(name) => (view = { name })} />
+      <KanjiView ongo={() => (view = { name: "anki", focus: "kanji" })} />
     {:else if view.name === "test"}
       <TestView />
     {:else if view.name === "anki"}
-      <AnkiSetup {status} onchange={refresh} />
+      <AnkiSetup {status} onchange={refresh} focus={view.focus} />
     {:else if view.name === "settings"}
       <Settings {status} onchange={refresh} />
     {/if}

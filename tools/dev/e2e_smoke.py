@@ -194,20 +194,15 @@ def main():
         d.shot(out / "02b-sentence-mapping.png")
         d.click(nt + "//button[normalize-space()='Save']")
         d.find(nt + "//span[normalize-space()='mapped']")
-        # Kanji notes (ADR 0013): pick the note type, check the suggested fields, save.
-        d.js(
-            "const s = [...document.querySelectorAll('select')].find(x => x.getAttribute('aria-label') === 'Add a kanji note type');"
-            "s.value = [...s.options].find(o => o.text.startsWith('Kanji (RTK)')).value; s.dispatchEvent(new Event('change', {bubbles: true}));"
-        )
+        # Kanji notes (ADR 0013): the note type's hint sets it up, saved straight away with the
+        # suggested fields.
+        d.click("//div[contains(@class,'nt')][.//strong[text()='Kanji (RTK)']]//button[normalize-space()='Use as kanji notes']")
         km = "//div[contains(@class,'kanji-map')][.//strong[text()='Kanji (RTK)']]"
-        d.find(km)
-        picked = d.js(
-            "return [...document.querySelectorAll('.kanji-map select')].map(s => s.value)"
-        )
+        d.find(km + "//span[normalize-space()='mapped']")
+        picked = d.js("return [...document.querySelectorAll('.kanji-map select')].map(s => s.value)")
         print("kanji fields:", picked)
         assert picked == ["Kanji", "Keyword", "Story"], picked
-        d.click(km + "//button[normalize-space()='Save']")
-        d.find(km + "//span[normalize-space()='mapped']")
+        assert len(d.invoke("kanji_mappings")) == 1
         d.click("//button[normalize-space()='Sync now']")
         report = d.text("//p[contains(., 'Read ') and contains(., 'cards')]", timeout=60)
         per_type = d.text("//table[contains(@class,'per-type')]")

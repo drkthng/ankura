@@ -128,8 +128,8 @@
 
   {#if status && status.with_story === 0}
     <section class="card notice">
-      <p>No kanji stories yet. Map your kanji note types and sync first.</p>
-      <button class="primary" onclick={() => ongo("anki")}>Go to Anki</button>
+      <p>No kanji stories yet. Set up your kanji note types on the Anki screen (Kanji notes), then sync.</p>
+      <button class="primary" onclick={() => ongo("anki")}>Set up kanji notes</button>
     </section>
   {:else if status}
     <section class="card">
