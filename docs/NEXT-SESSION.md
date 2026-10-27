@@ -1,23 +1,28 @@
 # Handoff to the next session
 
-Written 2026-10-26, at the end of the first working session (context was cleared after it).
+Updated 2026-10-27, at the end of the second working session (context is cleared after it).
 Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 `docs/HANDOFF.md` is the original phase-1 brief; its research tasks are done.
 
 ## 1. Where things stand
 
-- **M1 (read with your Anki knowledge): done, in daily use by the owner** on their real collection
-  (Windows). Paste a text, read it coloured by Anki state, tap words for meanings, telemetry.
-- **M2 (AI-written texts): built and tested with a fake provider only.** "Write for me" screen,
-  Anthropic + OpenRouter, coverage check with retries, example sentences. **Not yet run against
-  the real Claude API** (needs the owner's key). The owner's first real run is the first real
-  test: expect to fix something there.
-- Commit `bdb33c7` on `main` is the M2 commit; its CI run is
-  https://github.com/drkthng/ankura/actions/runs/40380564839. Check, tests, Windows and macOS
-  installers passed (Linux was still building at hand-off). Windows installer given to the owner:
-  https://github.com/drkthng/ankura/actions/runs/40380564839/artifacts/12678018674
-- Tests (at the M1/M2 hand-off; now 52): 42 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
-  (`tools/dev/e2e_smoke.py`). All passing at hand-off.
+- **M1 and M2 done and in daily use** on the owner's real collection (Windows), with their
+  Anthropic API key (Max plan API credits, ADR 0011).
+- **M3 built** (ADRs 0012-0014, ROADMAP): Anki cards from reading, phrase selection and phrase
+  matching, "Simplify this sentence", stats and stealth leeches, kanji (pop-up, RTK mnemonics,
+  consistent primitive names), correctable furigana, interest profile, level check.
+- **Confirmed by the owner on their collection:** the API key works; card fields pick the meaning
+  that fits the sentence; kanji setup: both note types mapped (Kanji / Word / Mnemonic), sync read
+  2,508 kanji; "all looks good".
+- **Not yet tried by the owner** (tested with fakes only): new mnemonic in the reader, primitive
+  analysis on the Kanji screen (2,508 stories ≈ 63 AI requests), level check, stats over days,
+  interests, reading fixes.
+- Last commit `bee00de` on `main`. Latest Windows installer given to the owner (kanji setup fix):
+  https://github.com/drkthng/ankura/actions/runs/40498469483/artifacts/12731158630
+- Tests: 76 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+  (`tools/dev/e2e_smoke.py`) covering every screen. All passing.
+- **User docs:** `README.md` links one guide per feature in `docs/guide/`; update the matching
+  guide with every user-facing change (CLAUDE.md says so too). Build docs: `docs/DEVELOPING.md`.
 
 ## 2. The owner and how they work
 
@@ -38,9 +43,14 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
     decided to start fresh; treat suspended as "doesn't count" (the default). Only ~1,616 notes are
     studied.
   - **FSRS is off** in their Anki, so recall is estimated from interval + overdue days.
-  - Other note types (Kanji, Kanji reverse, TopicByTag, English) are unmapped.
-  - Last sync: 1,474 words, 138 phrases, 4 notes without a word; ~1,640 known words.
+  - **Kanji** and **Kanji reverse** are mapped as kanji notes (fields Kanji / Word = keyword /
+    Mnemonic); 2,508 kanji. They learn kanji with RTK; the mnemonic is hidden on both cards.
+    TopicByTag and English are unmapped.
+  - Last sync (2026-10-27): 1,622 notes, 1,510 words, 108 phrases, 4 without a word; 1,578 known,
+    119 fading, 55 learning; 845 cards 30+ days overdue.
 - They mentioned not having practised for 6 months; fading words matter to them.
+- They ask for features mid-task and like them recorded and built in order; they pick between
+  options well when asked with `AskUserQuestion` (recap first).
 
 ## 3. Code map
 
@@ -113,32 +123,19 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 
 ## 5. Next steps, in order
 
-0. **Untested on the owner's collection:** kanji (ADR 0013: does `suggest_mapping` find their
-   "Kanji" / "Kanji reverse" fields? story language and formatting; primitive analysis on a few
-   thousand stories: cost, time, quality of the clash list), stats, simplify, phrase matching.
-   **Anki cards (ADR 0012) and phrase selection: built, tested with fakes only.** The owner's
-   first real use is the real test: check that the fields come out like their "Japanisch"
-   notes (bold word in "Original Sentence", reading field = word reading, `<br>`, sentence
-   reading), and that `addNote` goes into the right deck.
-1. **First real run.** Done: the API key works (2026-10-26). The owner's Max plan includes $200/month of API credits (ADR 0011,
-   Update); they claimed them and have an Anthropic API key, which goes into Settings. Copy &
-   paste through claude.ai is built as the fallback (setting `ai_mode`; `chat_prompt`,
-   `chat_submit` in `generate.rs`). Claude Code CLI and free OpenRouter models are on hold. Help
-   with the first real run.
-   Likely issues: error messages from the real API, prompt quality, texts landing under 95%
-   coverage for their small known-word set (~1,600 words); tune the prompt or the threshold
-   (`TARGET_COVERAGE` in `generate.rs`).
-2. **JMdict download** (`downloads.rs`, GitHub release URL) has never been run; if it fails for the
-   owner, the fallback is "Import a Yomitan dictionary…".
-3. **M2 is complete** ("Simplify this sentence" built 2026-10-27, fakes only).
-4. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方) are
-   still guessed (the user can correct them per text or everywhere; `reading_fixes`, schema v9); Sudachi splits some words oddly
-   (一時的 → 一|時|的).
-5. **M3** (ROADMAP, owner's order 2026-10-27): stats ✓, kanji ✓ (ADR 0013, all points);
-   furigana ✓ (counters by rule, user corrections), interests ✓, level check ✓ (ADR 0014).
-   Next: JLPT practice tests per level (research §Recommendations v1.5), then listening, Italian,
-   Spanish. The level check's response rates in `p_right` are assumptions; stored answers can
-   calibrate them later.
-6. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,
+1. **Support the owner's first real use** of what's untested (§1). Likely issues: the AI's story
+   language/formatting vs theirs (`kanji::new_story`), quality and cost of the primitive analysis
+   and the clash list (`primitives.rs`), level check items from the real model (the solver check
+   may drop many; `grammar_items` errors if none survive).
+2. **Next feature (owner's order):** JLPT practice tests per level (research
+   `docs/research/proficiency-tests.md` §Recommendations v1.5), then listening (TTS), Italian
+   (CILS) and Spanish (DELE/SIELE). Ask the owner before starting; they may have new requests.
+3. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分,
+   人気のない, この方) are guessed (user can fix them; `reading_fixes`); Sudachi splits some words
+   oddly (一時的 → 一|時|的); the level check's `p_right` rates are assumptions (stored answers can
+   calibrate them); JMdict download (`downloads.rs`) never run by the owner (fallback: import a
+   Yomitan dictionary).
+4. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,
    ADR 0004) and sync (ADR 0005); Italian/Spanish lemmatizer (ADR 0001); sudachi.rs needs a
-   one-line Android patch (ADR 0008); Tauri 3 is in alpha.
+   one-line Android patch (ADR 0008); Tauri 3 is in alpha. Claude Code CLI and free OpenRouter
+   models for AI (ADR 0011) are on hold.
