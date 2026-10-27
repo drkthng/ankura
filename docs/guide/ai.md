@@ -54,3 +54,17 @@ Only when you use an AI feature, and only to the provider you chose:
   notes of the chosen note type (their field contents), as examples.
 
 Nothing else from your collection or reading history leaves your computer.
+
+## What is kept
+
+Ankura keeps everything the AI writes in its database, so it doesn't have to ask twice:
+
+- every request and answer, as a log;
+- test questions in a question bank, also the spare ones a test didn't use. Practice tests and
+  the level check take questions from it first ([Practice test](practice-test.md#starting-a-test));
+- simpler versions of sentences and example sentences for cards. Asking again for the same
+  sentence or word gives the kept answer, as long as it still uses only words you know.
+  *New sentence* on a card always asks the AI.
+
+Settings → AI shows how much is kept and how often a kept answer was used instead of a new
+request. All of it stays on your computer.

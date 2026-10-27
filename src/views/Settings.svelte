@@ -3,7 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { api, type AiMode, type AiSettings, type CardOptions, type Provider, type Status } from "../lib/api";
+  import { api, type AiMode, type AiSettings, type CardOptions, type MemoryStats, type Provider, type Status } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
@@ -103,9 +103,18 @@
     cardsMessage = "Saved.";
   }
 
+  let memory = $state<MemoryStats | null>(null);
+  const savedRequests = $derived(
+    memory ? (memory.reused.simplify ?? 0) + (memory.reused.card_sentence ?? 0) : 0,
+  );
+  const savedQuestions = $derived(
+    memory ? (memory.reused.practice_items ?? 0) + (memory.reused.level_check_items ?? 0) : 0,
+  );
+
   onMount(() => {
     loadAi().catch((e) => (error = String(e)));
     loadCards();
+    api.memoryStats().then((m) => (memory = m)).catch(() => {});
   });
   async function switchProvider() {
     await api.setSetting("ai_provider", provider);
@@ -240,6 +249,20 @@
         <span class="muted small">Get a key at console.anthropic.com → API keys.</span>
       {/if}
     </div>
+    {#if memory}
+      <h3>What the AI has written</h3>
+      <p class="muted small">
+        Ankura keeps everything the AI writes, so it doesn't have to ask twice:
+        {memory.requests.toLocaleString()} request{memory.requests === 1 ? "" : "s"} logged{memory.failed
+          ? ` (${memory.failed} failed)`
+          : ""}; {memory.bank.toLocaleString()} test questions in the bank ({memory.bank_unseen.toLocaleString()} not used
+        yet); {memory.cached.toLocaleString()} simpler sentences and card sentences kept.
+      </p>
+      <p class="muted small">
+        Reused so far: {savedQuestions.toLocaleString()} test question{savedQuestions === 1 ? "" : "s"} and
+        {savedRequests.toLocaleString()} sentence{savedRequests === 1 ? "" : "s"} instead of asking the AI again.
+      </p>
+    {/if}
   </section>
 
   <section class="card">

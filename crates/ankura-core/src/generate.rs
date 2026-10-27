@@ -319,6 +319,21 @@ pub fn simplify_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, sent
     if sentence.is_empty() {
         return Err(Error::Llm("no sentence to simplify".into()));
     }
+    // A simpler version written before, if it's still familiar enough (ADR 0016).
+    for v in crate::memory::cache_get(store, "simplify", sentence)? {
+        let (Some(simple), Some(translation)) = (v["simple"].as_str(), v["translation"].as_str()) else { continue };
+        let c = check(store, tok, simple, &[])?;
+        if c.coverage >= TARGET_COVERAGE {
+            crate::memory::reused(store, "simplify", 1)?;
+            let doc = analyze(store, tok, simple)?;
+            return Ok(Simplified {
+                tokens: doc.paragraphs.into_iter().flatten().collect(),
+                simple: simple.into(),
+                translation: translation.into(),
+                coverage: c.coverage,
+            });
+        }
+    }
     let known = store.known_lemmas(tok.lang(), KNOWN_SAMPLE)?;
     let base = format!("Sentence: {sentence}\n\nKnown words (the learner knows these well):\n{}\n", known.join("、"));
     let mut prompt = base.clone();
@@ -348,6 +363,7 @@ pub fn simplify_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, sent
         }
     }
     let (simple, translation, c) = best.expect("at least one attempt");
+    crate::memory::cache_put(store, "simplify", sentence, &serde_json::json!({"simple": simple, "translation": translation}))?;
     let doc = analyze(store, tok, &simple)?;
     Ok(Simplified { tokens: doc.paragraphs.into_iter().flatten().collect(), simple, translation, coverage: c.coverage })
 }
@@ -599,6 +615,12 @@ mod tests {
         let prompts = llm.prompts.lock().unwrap();
         assert!(prompts[0].contains("Sentence: 猫の生態を観察することを好む。") && prompts[0].contains("好き"));
         assert!(prompts[1].contains("観察"), "{}", prompts[1]);
+        drop(prompts);
+        // The same sentence again: the kept version, no AI.
+        let again = simplify_sentence(&s, t, &llm, "猫の生態を観察することを好む。").unwrap();
+        assert_eq!(again.simple, "猫を見るのが好きだ。");
+        assert_eq!(llm.prompts.lock().unwrap().len(), 2);
+        assert_eq!(crate::memory::stats(&s).unwrap().reused["simplify"], 1);
     }
 
     #[test]

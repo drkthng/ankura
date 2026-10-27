@@ -546,6 +546,29 @@ def main():
         d.click("//button[normalize-space()='Pause']")
         d.find("//button[normalize-space()='Continue']")
 
+        # The question bank (ADR 0016): with earlier questions allowed, a second half N5 test
+        # comes from the bank at once, without AI requests; every request was logged.
+        mem = d.invoke("memory_stats")
+        print("memory:", mem)
+        assert mem["requests"] > 0 and mem["bank"] >= 24, mem
+        d.click("//button[normalize-space()='N5']")
+        d.click("//button[starts-with(normalize-space(), 'Half')]")
+        d.click("//button[normalize-space()='Bank first']")
+        d.click("//label[contains(., 'Include questions from earlier tests')]/input")
+        for _ in range(40):
+            plan = d.js("return document.querySelector('p.plan strong')?.textContent ?? ''")
+            if "no AI requests" in plan:
+                break
+            time.sleep(0.25)
+        print("plan:", plan)
+        assert "no AI requests" in plan, plan
+        d.shot(out / "15f-practice-bank.png")
+        d.click("//button[normalize-space()='Prepare the test']")
+        d.find("//nav[contains(@class,'grid')]", timeout=30)
+        after = d.invoke("memory_stats")
+        assert after["requests"] == mem["requests"] and after["reused"]["practice_items"] >= 24, after
+        d.click("//button[normalize-space()='Pause']")
+
         # Stats: characters read (logged as paragraphs counted as read) and the streak.
         d.click("//nav//button[normalize-space()='Stats']")
         today = d.text("//div[contains(@class,'tile')][.//span[normalize-space()='Read today']]")

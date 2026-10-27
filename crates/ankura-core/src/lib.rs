@@ -13,6 +13,7 @@ pub mod kana;
 pub mod knowledge;
 pub mod llm;
 pub mod mapping;
+pub mod memory;
 pub mod normalize;
 pub mod practice;
 pub mod primitives;

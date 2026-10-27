@@ -124,6 +124,12 @@ pub struct Item {
     pub pseudo: bool,
     #[serde(default)]
     pub passage: Option<String>,
+    /// Questions on the same passage share a group.
+    #[serde(default)]
+    pub group: Option<String>,
+    /// The question's id in the bank (ADR 0016).
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,7 +148,7 @@ impl From<&Item> for ItemView {
 }
 
 fn item(section: Section, level: u8, prompt: String, options: Vec<String>, answer: usize) -> Item {
-    Item { id: Uuid::new_v4().to_string(), section, level, prompt, options, answer, pseudo: false, passage: None }
+    Item { id: Uuid::new_v4().to_string(), section, level, prompt, options, answer, pseudo: false, passage: None, group: None, origin: None }
 }
 
 /// What the learner knows according to Anki and their marks (spellings), to skip in the test.
@@ -400,8 +406,8 @@ pub(crate) fn shuffled(m: &Mc, rng: &mut Rng) -> (Vec<String>, usize) {
 pub const GRAMMAR_STAGE1: usize = 8;
 pub const GRAMMAR_STAGE2: usize = 12;
 
-/// Grammar items at a level, written by the AI; items the checking call answers differently or
-/// finds ambiguous are dropped.
+/// Grammar items at a level, written by the AI (`n` and a few more); items the checking call
+/// answers differently or finds ambiguous are dropped. All the others are returned, for the bank.
 fn grammar_items(llm: &dyn Llm, level: u8, n: usize, section: Section, rng: &mut Rng) -> Result<Vec<Item>> {
     let schema = json!({
         "type": "object",
@@ -421,7 +427,6 @@ fn grammar_items(llm: &dyn Llm, level: u8, n: usize, section: Section, rng: &mut
         .iter()
         .enumerate()
         .filter(|(i, m)| checked.get(i).is_some_and(|(c, amb)| *c == m.answer && !amb))
-        .take(n)
         .map(|(_, m)| {
             let (options, answer) = shuffled(m, rng);
             item(section, level, m.question.clone(), options, answer)
@@ -463,9 +468,7 @@ fn reading_items(llm: &dyn Llm, level: u8, rng: &mut Rng) -> Result<Vec<Item>> {
         .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
     let mut out = Vec::new();
     for p in passages {
-        if out.len() >= PASSAGES * 2 {
-            break;
-        }
+        let group = Uuid::new_v4().to_string();
         let qs: Vec<Mc> = p.questions.into_iter().filter(valid).take(2).collect();
         if qs.is_empty() {
             continue;
@@ -480,6 +483,7 @@ fn reading_items(llm: &dyn Llm, level: u8, rng: &mut Rng) -> Result<Vec<Item>> {
                 let (options, answer) = shuffled(m, rng);
                 let mut it = item(Section::Reading, level, m.question.clone(), options, answer);
                 it.passage = Some(p.text.clone());
+                it.group = Some(group.clone());
                 out.push(it);
             }
         }
@@ -599,20 +603,91 @@ pub fn grammar(store: &Store, llm: &dyn Llm, test_id: &str, stage: u8) -> Result
         let level = if share >= 0.75 { start.saturating_sub(1).max(1) } else if share <= 0.4 { (start + 1).min(5) } else { start };
         (level, GRAMMAR_STAGE2, Section::Grammar2)
     };
-    let made = grammar_items(llm, level, n, section, &mut Rng::new())?;
+    let mut rng = Rng::new();
+    let mut made = from_bank(store, "grammar", level, n, section)?;
+    if made.len() < n {
+        let new = grammar_items(llm, level, n - made.len(), section, &mut rng)?;
+        made.extend(bank_new(store, "grammar", level, new, n - made.len())?);
+    }
     if made.is_empty() {
         return Err(Error::Llm("the AI's grammar questions didn't pass the check; try again".into()));
     }
-    save_items(store, test_id, &made)?;
+    use_items(store, test_id, &made)?;
     Ok(made.iter().map(ItemView::from).collect())
+}
+
+/// Unseen bank questions (ADR 0016): up to `n`, whole passages. A level check never repeats a
+/// question the learner has seen.
+fn from_bank(store: &Store, kind: &str, level: u8, n: usize, section: Section) -> Result<Vec<Item>> {
+    let mut out: Vec<Item> = Vec::new();
+    let rows = crate::memory::bank_candidates(store, "level_check", kind, level, false)?;
+    let mut done_groups: HashSet<String> = HashSet::new();
+    for r in &rows {
+        if out.len() >= n {
+            break;
+        }
+        let group: Vec<&crate::memory::BankRow> = match &r.group {
+            Some(g) if done_groups.insert(g.clone()) => rows.iter().filter(|x| x.group.as_ref() == Some(g)).collect(),
+            Some(_) => continue,
+            None => vec![r],
+        };
+        if out.len() + group.len() > n {
+            continue;
+        }
+        for row in group {
+            let mut it: Item = serde_json::from_str(&row.item)?;
+            it.id = Uuid::new_v4().to_string();
+            it.origin = Some(row.id.clone());
+            it.section = section;
+            out.push(it);
+        }
+    }
+    crate::memory::reused(store, "level_check_items", out.len())?;
+    Ok(out)
+}
+
+/// Banks every new checked question and returns the first `n` (whole passages) for the test.
+fn bank_new(store: &Store, kind: &str, level: u8, new: Vec<Item>, n: usize) -> Result<Vec<Item>> {
+    let rows: Vec<(String, Option<String>, String)> =
+        new.iter().map(|i| Ok((i.id.clone(), i.group.clone(), serde_json::to_string(i)?))).collect::<Result<_>>()?;
+    crate::memory::bank_add(store, "level_check", kind, level, &rows)?;
+    let mut out: Vec<Item> = Vec::new();
+    let mut skipped: HashSet<String> = HashSet::new();
+    for (k, it) in new.iter().enumerate() {
+        if let Some(g) = &it.group {
+            if skipped.contains(g) {
+                continue;
+            }
+            let size = new[k..].iter().take_while(|x| x.group.as_ref() == Some(g)).count();
+            let first = k == 0 || new[k - 1].group.as_ref() != Some(g);
+            if first && out.len() + size > n {
+                skipped.insert(g.clone());
+                continue;
+            }
+        } else if out.len() >= n {
+            break;
+        }
+        out.push(Item { origin: Some(it.id.clone()), id: Uuid::new_v4().to_string(), ..it.clone() });
+    }
+    Ok(out)
+}
+
+fn use_items(store: &Store, test_id: &str, items: &[Item]) -> Result<()> {
+    save_items(store, test_id, items)?;
+    crate::memory::bank_used(store, &items.iter().filter_map(|i| i.origin.clone()).collect::<Vec<_>>())
 }
 
 /// The reading section, at the most likely level so far.
 pub fn reading(store: &Store, llm: &dyn Llm, test_id: &str) -> Result<Vec<ItemView>> {
     let so_far = estimate_from(&items(store, test_id)?);
     let level = if so_far.level == 0 { 5 } else { 6 - so_far.level };
-    let made = reading_items(llm, level, &mut Rng::new())?;
-    save_items(store, test_id, &made)?;
+    let n = PASSAGES * 2;
+    let mut made = from_bank(store, "reading", level, n, Section::Reading)?;
+    if made.len() < n {
+        let new = reading_items(llm, level, &mut Rng::new())?;
+        made.extend(bank_new(store, "reading", level, new, n - made.len())?);
+    }
+    use_items(store, test_id, &made)?;
     Ok(made.iter().map(ItemView::from).collect())
 }
 
@@ -843,6 +918,42 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].prompt, "文0（　）です。");
         assert_eq!(items[0].options[items[0].answer], "い", "the key follows the shuffle");
+    }
+
+    /// Writes as many grammar items as asked; the checker agrees with every key.
+    struct Writer(Mutex<usize>);
+    impl Llm for Writer {
+        fn json(&self, _s: &str, u: &str, schema: &Value) -> Result<Value> {
+            *self.0.lock().unwrap() += 1;
+            if schema["properties"].get("answers").is_some() {
+                let k = u.lines().filter(|l| l.split_once(". ").is_some_and(|(i, _)| i.parse::<usize>().is_ok())).count();
+                return Ok(json!({"answers": (0..k).map(|i| json!({"index": i, "choice": 1, "ambiguous": false})).collect::<Vec<_>>()}));
+            }
+            let n: usize = u.lines().find_map(|l| l.strip_prefix("Number of items: ")).unwrap().parse().unwrap();
+            let id = Uuid::new_v4().simple().to_string();
+            Ok(json!({"items": (0..n).map(|i| json!({"question": format!("{id}{i}（　）"), "options": ["あ", "い", "う", "え"], "answer": 1})).collect::<Vec<_>>()}))
+        }
+    }
+
+    #[test]
+    fn grammar_reuses_unseen_bank_questions() {
+        let s = Store::open_in_memory().unwrap();
+        let llm = Writer(Mutex::new(0));
+        let a = start(&s, 3).unwrap();
+        let first = grammar(&s, &llm, &a.id, 1).unwrap();
+        assert_eq!(first.len(), GRAMMAR_STAGE1);
+        assert_eq!(*llm.0.lock().unwrap(), 2, "write + check");
+        // 12 written, 8 used: 4 wait in the bank for the next test.
+        assert_eq!(crate::memory::bank_counts(&s, "level_check").unwrap()[&3].unseen, 4);
+        let b = start(&s, 3).unwrap();
+        let second = grammar(&s, &llm, &b.id, 1).unwrap();
+        assert_eq!(second.len(), GRAMMAR_STAGE1);
+        let old: HashSet<&str> = first.iter().map(|i| i.prompt.as_str()).collect();
+        assert_eq!(second.iter().filter(|i| old.contains(i.prompt.as_str())).count(), 0, "nothing seen comes back");
+        assert_eq!(crate::memory::stats(&s).unwrap().reused["level_check_items"], 4);
+        // The keys survive the trip through the bank.
+        let all = items(&s, &b.id).unwrap();
+        assert!(all.iter().filter(|(i, _)| i.section == Section::Grammar1).all(|(i, _)| i.options[i.answer] == "い"));
     }
 
     #[test]

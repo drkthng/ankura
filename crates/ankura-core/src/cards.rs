@@ -84,11 +84,24 @@ fn sentence_schema() -> Value {
     })
 }
 
-/// One new sentence around the word in which every other word is known (i+1). Asks again with
-/// feedback when it isn't, and returns the best try.
-pub fn new_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, key: &WordKey, display: &str) -> Result<String> {
+/// One sentence around the word in which every other word is known (i+1). With `reuse`, a
+/// sentence written for this word before is used if it still passes the check (ADR 0016);
+/// otherwise the AI writes one, asked again with feedback when it isn't, and the best try is
+/// returned and kept for later.
+pub fn new_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, key: &WordKey, display: &str, reuse: bool) -> Result<String> {
     let mut targets = target_lemmas(tok, &[display.to_string()])?;
     targets[0].1.insert(key.lemma.clone());
+    let cache_key = format!("{}|{}", key.lemma, key.reading);
+    if reuse {
+        for v in crate::memory::cache_get(store, "card_sentence", &cache_key)? {
+            let Some(sentence) = v.as_str() else { continue };
+            let c = check(store, tok, sentence, &targets)?;
+            if c.missing.is_empty() && c.unknown.is_empty() {
+                crate::memory::reused(store, "card_sentence", 1)?;
+                return Ok(sentence.to_string());
+            }
+        }
+    }
     let known = store.known_lemmas(&key.lang, KNOWN_SAMPLE)?;
     let base = format!(
         "Target word: {display} ({})\n\nKnown words (the learner knows these well):\n{}\n",
@@ -124,7 +137,11 @@ pub fn new_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, key: &Wor
         f.push_str("Write a new sentence.");
         prompt = f;
     }
-    Ok(best.expect("at least one attempt").0)
+    let (sentence, misses) = best.expect("at least one attempt");
+    if misses < 100 {
+        crate::memory::cache_put(store, "card_sentence", &cache_key, &serde_json::Value::String(sentence.clone()))?;
+    }
+    Ok(sentence)
 }
 
 // --- filling the note's fields ---
@@ -361,11 +378,17 @@ mod tests {
         let llm = ScriptedLlm::new(vec![
             json!({"sentence": "豪雨の日に傘を忘れた。"}), // 豪雨 is unknown
             json!({"sentence": "雨の日に傘を忘れた。"}),
+            json!({"sentence": "日に傘を忘れた。"}),
         ]);
-        assert_eq!(new_sentence(&s, t, &llm, &kasa(), "傘").unwrap(), "雨の日に傘を忘れた。");
+        assert_eq!(new_sentence(&s, t, &llm, &kasa(), "傘", true).unwrap(), "雨の日に傘を忘れた。");
         let prompts = llm.prompts.lock().unwrap();
         assert!(prompts[0].0.contains("Target word: 傘 (かさ)") && prompts[0].0.contains("忘れる"));
         assert!(prompts[1].0.contains("豪雨"), "{}", prompts[1].0);
+        drop(prompts);
+        // Asked again for the same word: the kept sentence, no AI (the script is empty now).
+        assert_eq!(new_sentence(&s, t, &llm, &kasa(), "傘", true).unwrap(), "雨の日に傘を忘れた。");
+        assert_eq!(llm.prompts.lock().unwrap().len(), 2);
+        assert_eq!(new_sentence(&s, t, &llm, &kasa(), "傘", false).unwrap(), "日に傘を忘れた。", "a fresh one asks the AI");
     }
 
     #[test]

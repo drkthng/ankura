@@ -257,6 +257,9 @@ pub struct Item {
     /// The tested word, for Anki cards from missed items.
     #[serde(default)]
     pub word: Option<WordRef>,
+    /// The question's id in the bank (ADR 0016); several tests can use one question.
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -284,6 +287,7 @@ fn new_item(mondai: Mondai, level: u8, prompt: String, options: Vec<String>, ans
         group: None,
         explanation: String::new(),
         word: None,
+        origin: None,
     }
 }
 
@@ -503,8 +507,10 @@ struct Job {
     mondai: Mondai,
     level: u8,
     part: usize,
+    /// Questions still to write (the rest came from the bank).
     need: usize,
     words: Vec<WordRef>,
+    reused: Vec<Item>,
 }
 
 #[derive(Deserialize)]
@@ -608,7 +614,6 @@ fn word_items(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Result<V
         }
         out.extend(made);
     }
-    out.truncate(job.need);
     let mut rng = Rng::new();
     for it in out.iter_mut().filter(|i| i.mondai != Mondai::KanjiReading) {
         let (options, answer) = shuffled(&Mc { question: String::new(), options: it.options.clone(), answer: it.answer }, &mut rng);
@@ -669,7 +674,6 @@ fn order_items(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Result<
             );
         }
     }
-    out.truncate(job.need);
     Ok(out)
 }
 
@@ -707,10 +711,8 @@ fn passage_items(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Resul
         );
         let raw: Vec<RawPassage> = parse(&llm.json(PASSAGE_SYSTEM, &prompt, &passages_schema())?, "practice_passages")?;
         let mut rng = Rng::new();
+        // Every passage is checked, also the extras: they go into the bank (ADR 0016).
         for p in raw {
-            if out.len() >= job.need {
-                break;
-            }
             let mut text = p.text.trim().to_string();
             if job.mondai == Mondai::Integrated {
                 if p.text2.trim().is_empty() {
@@ -772,26 +774,33 @@ fn passage_items(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Resul
             }
         }
     }
-    // Whole passages only, unless one passage alone has more than needed.
-    if out.len() > job.need {
-        let mut groups: Vec<&str> = Vec::new();
-        let mut n = 0;
-        for it in &out {
-            let g = it.group.as_deref().unwrap_or_default();
-            if !groups.contains(&g) {
-                let size = out.iter().filter(|o| o.group.as_deref() == Some(g)).count();
-                if n > 0 && n + size > job.need {
-                    break;
-                }
-                groups.push(g);
-                n += size;
-            }
-        }
-        let groups: HashSet<String> = groups.into_iter().map(String::from).collect();
-        out.retain(|i| i.group.as_ref().is_some_and(|g| groups.contains(g)));
-        out.truncate(job.need);
-    }
     Ok(out)
+}
+
+/// Splits items into the ones a test takes (up to `need`) and the rest. Passages go whole; the
+/// first passage may be cut when it alone has more questions than needed (not 文章の文法, whose
+/// blanks would be left without questions).
+fn take(items: Vec<Item>, need: usize) -> (Vec<Item>, Vec<Item>) {
+    let (mut taken, mut rest) = (Vec::new(), Vec::new());
+    let mut groups: Vec<Vec<Item>> = Vec::new();
+    for it in items {
+        match groups.last_mut() {
+            Some(g) if it.group.is_some() && g[0].group == it.group => g.push(it),
+            _ => groups.push(vec![it]),
+        }
+    }
+    for mut g in groups {
+        let room = need - taken.len();
+        if g.len() <= room {
+            taken.append(&mut g);
+        } else if taken.is_empty() && room > 0 && g[0].mondai != Mondai::TextGrammar {
+            rest.extend(g.split_off(room));
+            taken.append(&mut g);
+        } else {
+            rest.append(&mut g);
+        }
+    }
+    (taken, rest)
 }
 
 fn run_job(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Result<Vec<Item>> {
@@ -871,6 +880,15 @@ pub struct Config {
     /// For a retry: the test it retries.
     #[serde(default)]
     pub parent: Option<String>,
+    /// Share of questions to take from the bank, 0-100 (ADR 0016).
+    #[serde(default)]
+    pub reuse: u8,
+    /// Whether bank questions used in earlier tests may come back.
+    #[serde(default)]
+    pub repeat_seen: bool,
+    /// Questions taken from the bank so far.
+    #[serde(default)]
+    pub from_bank: usize,
 }
 
 fn config(store: &Store, test_id: &str) -> Result<(String, Config)> {
@@ -919,11 +937,22 @@ fn stored(store: &Store, test_id: &str) -> Result<Vec<Stored>> {
 }
 
 /// A new practice test at a level (5 = N5 … 1 = N1); `prepare` writes its items.
-pub fn create(store: &Store, level: u8, half: bool, timed: bool) -> Result<String> {
+pub fn create(store: &Store, level: u8, half: bool, timed: bool, reuse: u8, repeat_seen: bool) -> Result<String> {
     let level = level.clamp(1, 5);
     let id = Uuid::new_v4().to_string();
     let parts = layout(level, half).len();
-    let c = Config { level, half, timed, prepared: vec![], used_secs: vec![0; parts], submitted: vec![false; parts], parent: None };
+    let c = Config {
+        level,
+        half,
+        timed,
+        prepared: vec![],
+        used_secs: vec![0; parts],
+        submitted: vec![false; parts],
+        parent: None,
+        reuse: reuse.min(100),
+        repeat_seen,
+        from_bank: 0,
+    };
     store.conn.execute(
         "INSERT INTO tests (id, device_id, kind, start_level, started_at, config) VALUES (?1, ?2, 'practice', ?3, ?4, ?5)",
         params![id, store.device_id(), level, now_ms(), serde_json::to_string(&c)?],
@@ -935,6 +964,106 @@ pub fn create(store: &Store, level: u8, half: bool, timed: bool) -> Result<Strin
 pub struct Progress {
     pub done: usize,
     pub total: usize,
+    /// Questions taken from the bank.
+    pub from_bank: usize,
+}
+
+fn kind(m: Mondai) -> String {
+    serde_json::to_value(m).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
+}
+
+/// Bank questions for one question type: up to `want`, whole passages (ADR 0016).
+fn from_bank(
+    store: &Store,
+    m: Mondai,
+    level: u8,
+    want: usize,
+    repeat_seen: bool,
+    used_words: &mut HashSet<String>,
+    rng: &mut Rng,
+) -> Result<Vec<Item>> {
+    if want == 0 {
+        return Ok(vec![]);
+    }
+    let mut rows: Vec<Item> = Vec::new();
+    for r in crate::memory::bank_candidates(store, "practice", &kind(m), level, repeat_seen)? {
+        if let Ok(mut it) = serde_json::from_str::<Item>(&r.item) {
+            // One question per word in a test.
+            if it.word.as_ref().is_some_and(|w| used_words.contains(&w.expression)) {
+                continue;
+            }
+            it.origin = Some(r.id);
+            it.group = r.group;
+            rows.push(it);
+        }
+    }
+    // Keep a passage's questions together, in the order they were written.
+    let mut order: Vec<Option<String>> = Vec::new();
+    for it in &rows {
+        if it.group.is_none() || !order.contains(&it.group) {
+            order.push(it.group.clone());
+        }
+    }
+    let mut grouped: Vec<Item> = Vec::new();
+    let mut singles = rows.iter().filter(|i| i.group.is_none());
+    for g in order {
+        match g {
+            None => grouped.extend(singles.next().cloned()),
+            Some(g) => grouped.extend(rows.iter().filter(|i| i.group.as_deref() == Some(g.as_str())).cloned()),
+        }
+    }
+    let (mut taken, _) = take(grouped, want);
+    // Passages that don't fit whole are skipped; a test needs whole passages.
+    if m.passage_based() {
+        let mut sizes: HashMap<String, usize> = HashMap::new();
+        for it in &taken {
+            *sizes.entry(it.group.clone().unwrap_or_default()).or_default() += 1;
+        }
+        let full: HashMap<String, usize> =
+            rows.iter().fold(HashMap::new(), |mut m, i| {
+                *m.entry(i.group.clone().unwrap_or_default()).or_default() += 1;
+                m
+            });
+        taken.retain(|i| {
+            let g = i.group.clone().unwrap_or_default();
+            sizes.get(&g) == full.get(&g)
+        });
+    }
+    for it in &mut taken {
+        if let Some(w) = &it.word {
+            used_words.insert(w.expression.clone());
+        }
+        it.id = Uuid::new_v4().to_string();
+        let (options, answer) = shuffled(&Mc { question: String::new(), options: it.options.clone(), answer: it.answer }, rng);
+        it.options = options;
+        it.answer = answer;
+    }
+    Ok(taken)
+}
+
+/// What a new test would take from the bank and what it would ask the AI to write.
+#[derive(Debug, Clone, Serialize)]
+pub struct Plan {
+    pub from_bank: usize,
+    pub new: usize,
+    /// Question types the AI has to write (about two requests each).
+    pub ai_types: usize,
+}
+
+pub fn plan(store: &Store, level: u8, half: bool, reuse: u8, repeat_seen: bool) -> Result<Plan> {
+    let mut rng = Rng::new();
+    let mut p = Plan { from_bank: 0, new: 0, ai_types: 0 };
+    let mut words = HashSet::new();
+    for part in layout(level, half) {
+        for (m, need) in part.mondai {
+            let want = (need * usize::from(reuse.min(100))).div_ceil(100);
+            let got = from_bank(store, m, level, want, repeat_seen, &mut words, &mut rng)?.len();
+            p.from_bank += got;
+            p.new += need - got;
+            p.ai_types += usize::from(got < need);
+        }
+    }
+    Ok(p)
 }
 
 /// How many AI requests run at once while preparing.
@@ -961,9 +1090,21 @@ pub fn prepare(
             if c.prepared.contains(&m) {
                 continue;
             }
-            let words = pick_words(m, c.level, need * 2 + 4, &mut used, &mut rng);
-            jobs.push(Job { mondai: m, level: c.level, part: pi, need, words });
+            // Bank questions first (as many as the chosen share), then the AI for the rest.
+            let want = (need * usize::from(c.reuse.min(100))).div_ceil(100);
+            let mut reused = from_bank(store, m, c.level, want, c.repeat_seen, &mut used, &mut rng)?;
+            for it in &mut reused {
+                it.part = pi;
+            }
+            let need = need - reused.len();
+            let words = if need > 0 { pick_words(m, c.level, need * 2 + 4, &mut used, &mut rng) } else { vec![] };
+            jobs.push(Job { mondai: m, level: c.level, part: pi, need, words, reused });
         }
+    }
+    // Types the bank fills alone need no AI.
+    let (ready, jobs): (Vec<Job>, Vec<Job>) = jobs.into_iter().partition(|j| j.need == 0);
+    for job in ready {
+        finish_job(store, test_id, &mut c, job, vec![], &mut rng)?;
     }
     progress(c.prepared.len(), total);
     let mut first_error = None;
@@ -975,26 +1116,18 @@ pub fn prepare(
             let handles: Vec<_> = chunk.iter().map(|job| s.spawn(move || run_job(llm, tok, job))).collect();
             handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(Error::Llm("a question writer crashed".into())))).collect()
         });
+        let mut jobs_done = Vec::new();
         for (job, r) in chunk.iter().zip(results) {
             match r {
-                Ok(mut items) => {
-                    if job.mondai == Mondai::KanjiReading {
-                        let mut kept = Vec::new();
-                        for mut it in items {
-                            if finish_kanji(store, &mut it, &mut rng)? {
-                                kept.push(it);
-                            }
-                        }
-                        items = kept;
-                    }
-                    save_items(store, test_id, &items)?;
-                    c.prepared.push(job.mondai);
-                    save_config(store, test_id, &c)?;
-                }
+                Ok(items) => jobs_done.push((job, items)),
                 Err(e) => {
                     first_error.get_or_insert(e);
                 }
             }
+        }
+        for (job, items) in jobs_done {
+            let job = Job { reused: job.reused.clone(), words: vec![], ..*job };
+            finish_job(store, test_id, &mut c, job, items, &mut rng)?;
         }
         progress(c.prepared.len(), total);
         if first_error.is_some() {
@@ -1003,8 +1136,36 @@ pub fn prepare(
     }
     match first_error {
         Some(e) => Err(e),
-        None => Ok(Progress { done: c.prepared.len(), total }),
+        None => Ok(Progress { done: c.prepared.len(), total, from_bank: c.from_bank }),
     }
+}
+
+/// Saves one question type: the bank questions and the new ones the test needs; every new
+/// checked question goes into the bank, used or not.
+fn finish_job(store: &Store, test_id: &str, c: &mut Config, job: Job, mut new: Vec<Item>, rng: &mut Rng) -> Result<()> {
+    if job.mondai == Mondai::KanjiReading {
+        let mut kept = Vec::new();
+        for mut it in new {
+            if finish_kanji(store, &mut it, rng)? {
+                kept.push(it);
+            }
+        }
+        new = kept;
+    }
+    let rows: Vec<(String, Option<String>, String)> =
+        new.iter().map(|i| Ok((i.id.clone(), i.group.clone(), serde_json::to_string(i)?))).collect::<Result<_>>()?;
+    crate::memory::bank_add(store, "practice", &kind(job.mondai), job.level, &rows)?;
+    let (taken, _rest) = take(new, job.need);
+    let taken: Vec<Item> = taken.into_iter().map(|i| Item { origin: Some(i.id.clone()), id: Uuid::new_v4().to_string(), ..i }).collect();
+    let mut items = job.reused;
+    let reused = items.len();
+    items.extend(taken);
+    save_items(store, test_id, &items)?;
+    crate::memory::bank_used(store, &items.iter().filter_map(|i| i.origin.clone()).collect::<Vec<_>>())?;
+    crate::memory::reused(store, "practice_items", reused)?;
+    c.from_bank += reused;
+    c.prepared.push(job.mondai);
+    save_config(store, test_id, c)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1369,6 +1530,9 @@ pub fn review(store: &Store, test_id: &str) -> Result<Vec<ReviewItem>> {
 
 /// Marks a question as bad (or not); reported questions don't count. Returns the new result.
 pub fn report(store: &Store, test_id: &str, item_id: &str, reported: bool) -> Result<PracticeResult> {
+    if let Some(it) = stored(store, test_id)?.into_iter().find(|s| s.item.id == item_id) {
+        crate::memory::bank_report(store, it.item.origin.as_deref().unwrap_or(item_id), reported)?;
+    }
     store.conn.execute(
         "UPDATE test_items SET reported = ?3 WHERE test_id = ?1 AND item_id = ?2",
         params![test_id, item_id, reported as i64],
@@ -1389,7 +1553,7 @@ pub fn retry(store: &Store, test_id: &str) -> Result<String> {
     }
     // Passages keep their own group, so a retried passage stays together.
     let id = Uuid::new_v4().to_string();
-    let rc = Config { level: c.level, half: false, timed: false, prepared: vec![], used_secs: vec![0], submitted: vec![false], parent: Some(test_id.into()) };
+    let rc = Config { parent: Some(test_id.into()), used_secs: vec![0], submitted: vec![false], half: false, timed: false, prepared: vec![], ..c };
     store.conn.execute(
         "INSERT INTO tests (id, device_id, kind, start_level, started_at, config) VALUES (?1, ?2, 'retry', ?3, ?4, ?5)",
         params![id, store.device_id(), c.level, now_ms(), serde_json::to_string(&rc)?],
@@ -1570,7 +1734,7 @@ mod tests {
     #[test]
     fn prepares_a_whole_test_and_scores_it() {
         let s = Store::open_in_memory().unwrap();
-        let id = create(&s, 3, true, true).unwrap();
+        let id = create(&s, 3, true, true, 0, false).unwrap();
         let llm = Fake::new();
         let mut seen = Vec::new();
         let p = prepare(&s, &llm, None, &id, |d, t| seen.push((d, t)), || false).unwrap();
@@ -1631,9 +1795,11 @@ mod tests {
         let s = Store::open_in_memory().unwrap();
         let _ = s;
         let llm = Fake::new();
-        let job = Job { mondai: Mondai::ShortText, level: 4, part: 0, need: 2, words: vec![] };
-        let items = passage_items(&llm, None, &job).unwrap();
-        assert_eq!(items.len(), 2);
+        let job = Job { mondai: Mondai::ShortText, level: 4, part: 0, need: 2, words: vec![], reused: vec![] };
+        let all = passage_items(&llm, None, &job).unwrap();
+        assert_eq!(all.len(), 3, "every checked question is returned, extras for the bank");
+        let (items, rest) = take(all, job.need);
+        assert_eq!((items.len(), rest.len()), (2, 1));
         assert!(items.iter().all(|i| i.passage.as_deref().is_some_and(|p| p.contains("七時"))));
         // A checker that also answers right without the text: nothing survives.
         struct Knows;
@@ -1663,7 +1829,7 @@ mod tests {
                 Ok(v)
             }
         }
-        let job = Job { mondai: Mondai::TextGrammar, level: 5, part: 1, need: 3, words: vec![] };
+        let job = Job { mondai: Mondai::TextGrammar, level: 5, part: 1, need: 3, words: vec![], reused: vec![] };
         let items = passage_items(&Half, None, &job).unwrap();
         assert!(!items.is_empty());
         let text = items[0].passage.clone().unwrap();
@@ -1686,7 +1852,18 @@ mod tests {
 
     #[test]
     fn scoring_applies_pass_line_and_minimums() {
-        let c = Config { level: 2, half: false, timed: false, prepared: vec![], used_secs: vec![], submitted: vec![], parent: None };
+        let c = Config {
+            level: 2,
+            half: false,
+            timed: false,
+            prepared: vec![],
+            used_secs: vec![],
+            submitted: vec![],
+            parent: None,
+            reuse: 0,
+            repeat_seen: false,
+            from_bank: 0,
+        };
         let mk = |m: Mondai, right: bool| Stored {
             item: new_item(m, 2, "q".into(), vec!["a".into(); 4], 0),
             choice: Some(if right { 0 } else { 1 }),
@@ -1711,7 +1888,7 @@ mod tests {
     #[test]
     fn retry_has_only_missed_questions() {
         let s = Store::open_in_memory().unwrap();
-        let id = create(&s, 5, true, false).unwrap();
+        let id = create(&s, 5, true, false, 0, false).unwrap();
         prepare(&s, &Fake::new(), None, &id, |_, _| {}, || false).unwrap();
         let all = stored(&s, &id).unwrap();
         for (i, st) in all.iter().enumerate() {
@@ -1731,9 +1908,60 @@ mod tests {
     }
 
     #[test]
+    fn later_tests_reuse_the_bank() {
+        let s = Store::open_in_memory().unwrap();
+        let llm = Fake::new();
+        let first = create(&s, 4, true, false, 0, false).unwrap();
+        prepare(&s, &llm, None, &first, |_, _| {}, || false).unwrap();
+        let first_calls = llm.calls.lock().unwrap().len();
+        let n = stored(&s, &first).unwrap().len();
+        // Every checked question is banked, the extras unused.
+        let counts = crate::memory::bank_counts(&s, "practice").unwrap();
+        assert!(counts[&4].total > n && counts[&4].unseen == counts[&4].total - n, "{counts:?}");
+
+        // Bank first, unseen only: the extras come back, the AI writes less.
+        let p = plan(&s, 4, true, 100, false).unwrap();
+        assert!(p.from_bank > 0 && p.from_bank + p.new == n, "{p:?}");
+        let second = create(&s, 4, true, false, 100, false).unwrap();
+        let r = prepare(&s, &llm, None, &second, |_, _| {}, || false).unwrap();
+        // The plan is an estimate: new questions take words that can rule out a bank question.
+        assert!(r.from_bank.abs_diff(p.from_bank) <= 2, "{r:?} {p:?}");
+        assert!(llm.calls.lock().unwrap().len() - first_calls < first_calls);
+        let firsts: HashSet<String> = stored(&s, &first).unwrap().into_iter().filter_map(|x| x.item.origin).collect();
+        let seconds = stored(&s, &second).unwrap();
+        assert_eq!(seconds.len(), n);
+        assert!(seconds.iter().all(|x| x.item.origin.as_ref().is_some_and(|o| !firsts.contains(o))), "nothing seen is repeated");
+        // Reused passages stay whole and in the sheet's layout.
+        let sh = sheet(&s, &second).unwrap();
+        for (part, spec) in sh.parts.iter().zip(layout(4, true)) {
+            assert_eq!(part.groups.iter().map(|g| (g.mondai, g.items.len())).collect::<Vec<_>>(), spec.mondai);
+        }
+
+        // Repeating seen questions allowed: no AI at all.
+        let before = llm.calls.lock().unwrap().len();
+        let third = create(&s, 4, true, false, 100, true).unwrap();
+        let r = prepare(&s, &llm, None, &third, |_, _| {}, || false).unwrap();
+        assert_eq!(r.done, r.total);
+        // Nearly all from the bank; a type whose bank questions share words with another type's
+        // may need one written (the test bank is tiny).
+        assert!(r.from_bank + 2 >= n, "{r:?}");
+        if r.from_bank == n {
+            assert_eq!(llm.calls.lock().unwrap().len(), before);
+        }
+        assert_eq!(stored(&s, &third).unwrap().len(), n);
+        assert!(crate::memory::stats(&s).unwrap().reused["practice_items"] >= n - 2);
+
+        // A reported question never comes back.
+        let bad = seconds[0].item.clone();
+        report(&s, &second, &bad.id, true).unwrap();
+        let rows = crate::memory::bank_candidates(&s, "practice", &kind(bad.mondai), 4, true).unwrap();
+        assert!(rows.iter().all(|r| Some(&r.id) != bad.origin.as_ref()));
+    }
+
+    #[test]
     fn stopping_and_continuing() {
         let s = Store::open_in_memory().unwrap();
-        let id = create(&s, 4, true, true).unwrap();
+        let id = create(&s, 4, true, true, 0, false).unwrap();
         let llm = Fake::new();
         // Stops after the first round of PARALLEL types.
         let rounds = std::cell::Cell::new(0);

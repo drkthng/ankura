@@ -5,8 +5,8 @@ knows the user's Anki card stats, tracks its own word/kanji exposure and lookup 
 to generate interest-tailored n+1 texts with a high share of known words.
 
 **Status:** desktop app for Japanese. M1 and M2 in daily use with the owner's API key. M3
-(cards, phrases, stats, kanji/RTK, furigana fixes, interests, level check, JLPT practice tests;
-ADRs 0012-0015) built
+(cards, phrases, stats, kanji/RTK, furigana fixes, interests, level check, JLPT practice tests,
+kept and reused AI output; ADRs 0012-0016) built
 and tested with fakes; the owner is trying them on their collection. **Start with `docs/NEXT-SESSION.md`** (state, owner, code
 map, cloud-session tips, next steps), then `docs/ROADMAP.md` and the ADRs in `docs/adr/`.
 `docs/HANDOFF.md` is the original phase-1 brief (vision, requirements); its tasks are done.

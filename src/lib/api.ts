@@ -347,6 +347,23 @@ export interface PracticeIntro {
   credit: string;
   tests: PastPractice[];
   layouts: [number, PartSpec[]][];
+  /** Questions in the bank per level (key "5" = N5). */
+  bank: Record<string, { total: number; unseen: number }>;
+}
+
+export interface PracticePlan {
+  from_bank: number;
+  new: number;
+  ai_types: number;
+}
+
+export interface MemoryStats {
+  requests: number;
+  failed: number;
+  bank: number;
+  bank_unseen: number;
+  cached: number;
+  reused: Record<string, number>;
 }
 
 export interface ReviewItem extends PracticeItem {
@@ -502,8 +519,12 @@ export const api = {
   testReading: (testId: string) => invoke<TestItem[]>("test_reading", { testId }),
   testFinish: (testId: string) => invoke<Estimate>("test_finish", { testId }),
   practiceIntro: () => invoke<PracticeIntro>("practice_intro"),
-  practiceCreate: (level: number, half: boolean, timed: boolean) => invoke<string>("practice_create", { level, half, timed }),
-  practicePrepare: (testId: string) => invoke<{ done: number; total: number }>("practice_prepare", { testId }),
+  practiceCreate: (level: number, half: boolean, timed: boolean, reuse: number, repeatSeen: boolean) =>
+    invoke<string>("practice_create", { level, half, timed, reuse, repeatSeen }),
+  practicePlan: (level: number, half: boolean, reuse: number, repeatSeen: boolean) =>
+    invoke<PracticePlan>("practice_plan", { level, half, reuse, repeatSeen }),
+  practicePrepare: (testId: string) => invoke<{ done: number; total: number; from_bank: number }>("practice_prepare", { testId }),
+  memoryStats: () => invoke<MemoryStats>("memory_stats"),
   practiceStop: () => invoke<void>("practice_stop"),
   practiceSheet: (testId: string) => invoke<PracticeSheet>("practice_sheet", { testId }),
   practiceAnswer: (testId: string, itemId: string, choice: number | null) => invoke<void>("practice_answer", { testId, itemId, choice }),

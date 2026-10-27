@@ -5,6 +5,7 @@
     api,
     type PracticeIntro,
     type PracticeItem,
+    type PracticePlan,
     type PracticeResult,
     type PracticeSheet,
     type PastPractice,
@@ -22,6 +23,10 @@
   let level = $state(5);
   let half = $state(false);
   let timed = $state(true);
+  /** Share of questions from the bank (ADR 0016). */
+  let reuse = $state(100);
+  let repeatSeen = $state(false);
+  let plan = $state<PracticePlan | null>(null);
 
   // Preparing
   let testId = $state("");
@@ -66,6 +71,19 @@
   const halfItems = $derived(layout.reduce((n, p) => n + p.mondai.reduce((m, [, k]) => m + Math.ceil(k / 2), 0), 0));
   const fullMinutes = $derived(layout.reduce((n, p) => n + p.minutes, 0));
   const halfMinutes = $derived(layout.reduce((n, p) => n + Math.ceil(p.minutes / 2), 0));
+  const bank = $derived(intro?.bank[String(level)] ?? { total: 0, unseen: 0 });
+
+  let planSeq = 0;
+  $effect(() => {
+    const args = [level, half, reuse, repeatSeen] as const;
+    if (!intro) return;
+    // Only the answer to the latest choice counts; an older one may arrive later.
+    const seq = ++planSeq;
+    api
+      .practicePlan(...args)
+      .then((p) => seq === planSeq && (plan = p))
+      .catch(() => seq === planSeq && (plan = null));
+  });
 
   // --- preparing ---
 
@@ -73,7 +91,7 @@
     error = "";
     note = "";
     try {
-      testId = await api.practiceCreate(level, half, timed);
+      testId = await api.practiceCreate(level, half, timed, reuse, repeatSeen);
       await prepare();
     } catch (e) {
       error = String(e);
@@ -355,6 +373,30 @@
           <button class="seg" class:on={!half} onclick={() => (half = false)}>Full · {fullItems} questions · {fullMinutes} min</button>
           <button class="seg" class:on={half} onclick={() => (half = true)}>Half · {halfItems} questions · {halfMinutes} min</button>
         </div>
+        <div class="row">
+          <span class="lab">Questions</span>
+          <button class="seg" class:on={reuse === 100} onclick={() => (reuse = 100)}>Bank first</button>
+          <button class="seg" class:on={reuse === 50} onclick={() => (reuse = 50)}>Half new</button>
+          <button class="seg" class:on={reuse === 0} onclick={() => (reuse = 0)}>All new</button>
+          <label class="check" class:off={reuse === 0}>
+            <input type="checkbox" bind:checked={repeatSeen} disabled={reuse === 0} /> Include questions from earlier tests
+          </label>
+        </div>
+        <p class="muted small plan">
+          Your question bank for N{level}: {bank.total} question{bank.total === 1 ? "" : "s"}{bank.total
+            ? `, ${bank.unseen} not used in a test yet`
+            : ""}.
+          {#if plan}
+            {#if plan.new === 0}
+              <strong>All {plan.from_bank} from the bank: ready at once, no AI requests.</strong>
+            {:else if plan.from_bank > 0}
+              <strong>About {plan.from_bank} from the bank, {plan.new} written new</strong> ({plan.ai_types} question
+              type{plan.ai_types === 1 ? "" : "s"} for the AI).
+            {:else}
+              All {plan.new} written new.
+            {/if}
+          {/if}
+        </p>
         <div class="row">
           <span class="lab">Timer</span>
           <label class="check"><input type="checkbox" bind:checked={timed} /> Official time per part</label>
@@ -646,6 +688,15 @@
     display: inline-flex;
     gap: 0.4rem;
     align-items: center;
+  }
+  .plan {
+    margin: 0.5rem 0 0 5rem;
+  }
+  .check.off {
+    opacity: 0.5;
+  }
+  .lab {
+    flex: 0 0 5rem;
   }
   .parts {
     margin: 0.8rem 0 0;

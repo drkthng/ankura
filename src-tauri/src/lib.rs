@@ -70,8 +70,9 @@ impl AppState {
         LlmConfig { provider, model, effort: self.setting("ai_effort").unwrap_or(d.effort) }
     }
 
-    /// The AI for automatic mode, or a message saying what's missing.
-    fn llm(&self) -> CmdResult<HttpLlm> {
+    /// The AI for automatic mode, or a message saying what's missing. Every request and answer
+    /// is logged in the database (ADR 0016).
+    fn llm(&self) -> CmdResult<ankura_core::memory::Recorded<HttpLlm>> {
         let config = self.llm_config();
         if config.model.trim().is_empty() {
             return Err("Choose a model for this provider in Settings.".into());
@@ -81,7 +82,7 @@ impl AppState {
         if let Ok(url) = std::env::var("ANKURA_LLM_URL") {
             llm = llm.with_url(&url); // development and tests: a stand-in provider
         }
-        Ok(llm)
+        Ok(ankura_core::memory::Recorded::new(llm, self.own_store()?))
     }
 
     /// Its own connection, so the app's shared one isn't locked while the AI writes (WAL mode lets
@@ -741,6 +742,8 @@ struct PracticeIntro {
     credit: &'static str,
     tests: Vec<practice::PastPractice>,
     layouts: Vec<(u8, Vec<practice::PartSpec>)>,
+    /// Questions in the bank per level (ADR 0016).
+    bank: std::collections::BTreeMap<u8, ankura_core::memory::BankCount>,
 }
 
 #[tauri::command]
@@ -752,14 +755,27 @@ async fn practice_intro(app: AppHandle) -> CmdResult<PracticeIntro> {
             credit: proficiency::CREDIT,
             tests: practice::list(&store).map_err(err)?,
             layouts: (1..=5).rev().map(|l| (l, practice::layout(l, false))).collect(),
+            bank: ankura_core::memory::bank_counts(&store, "practice").map_err(err)?,
         })
     })
     .await
 }
 
 #[tauri::command]
-async fn practice_create(app: AppHandle, level: u8, half: bool, timed: bool) -> CmdResult<String> {
-    blocking(app, move |s| practice::create(&s.store(), level, half, timed).map_err(err)).await
+async fn practice_create(app: AppHandle, level: u8, half: bool, timed: bool, reuse: u8, repeat_seen: bool) -> CmdResult<String> {
+    blocking(app, move |s| practice::create(&s.store(), level, half, timed, reuse, repeat_seen).map_err(err)).await
+}
+
+/// How many questions a new test would take from the bank and how many the AI would write.
+#[tauri::command]
+async fn practice_plan(app: AppHandle, level: u8, half: bool, reuse: u8, repeat_seen: bool) -> CmdResult<practice::Plan> {
+    blocking(app, move |s| practice::plan(&s.store(), level, half, reuse, repeat_seen).map_err(err)).await
+}
+
+/// What the AI has produced and how often stored answers were reused (ADR 0016).
+#[tauri::command]
+async fn memory_stats(app: AppHandle) -> CmdResult<ankura_core::memory::MemoryStats> {
+    blocking(app, |s| ankura_core::memory::stats(&s.store()).map_err(err)).await
 }
 
 /// Writes the test's questions; emits `practice-progress` {done, total} (question types).
@@ -931,7 +947,7 @@ async fn card_create(
             Some(x) => (x, "text"),
             None => {
                 let tok = s.tokenizer()?;
-                (cards::new_sentence(&s.own_store()?, tok.as_ref(), &s.llm()?, &key, &display).map_err(err)?, "new")
+                (cards::new_sentence(&s.own_store()?, tok.as_ref(), &s.llm()?, &key, &display, true).map_err(err)?, "new")
             }
         };
         let draft = s
@@ -966,7 +982,8 @@ async fn card_new_sentence(app: AppHandle, id: String) -> CmdResult<CardDraft> {
         let tok = s.tokenizer()?;
         let store = s.own_store()?;
         let d = store.card_draft(&id).map_err(err)?.ok_or("This card is no longer in the list.")?;
-        let sentence = cards::new_sentence(&store, tok.as_ref(), &s.llm()?, &d.key, &d.display).map_err(err)?;
+        // "New sentence" asks for a different one: always the AI.
+        let sentence = cards::new_sentence(&store, tok.as_ref(), &s.llm()?, &d.key, &d.display, false).map_err(err)?;
         store.set_card_sentence(&id, &sentence, "new").map_err(err)?;
         store.card_draft(&id).map_err(err)?.ok_or_else(|| "This card is no longer in the list.".into())
     })
@@ -1060,6 +1077,8 @@ pub fn run() {
             test_finish,
             practice_intro,
             practice_create,
+            practice_plan,
+            memory_stats,
             practice_prepare,
             practice_stop,
             practice_sheet,

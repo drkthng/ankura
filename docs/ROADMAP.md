@@ -76,6 +76,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] JLPT practice tests per level (ADR 0015): the JLPT's question types, order and times
       without listening, full or half length, optional timer, scaled pass line and verdict,
       explanations, report a bad question, cards from missed words, retry missed.
+- [x] Keep and reuse AI output (ADR 0016): log of every request, question bank for practice
+      tests and the level check (mix chosen per test), cached simpler sentences and card
+      sentences, savings shown in Settings.
 - [ ] Italian (CILS) and Spanish (DELE/SIELE) tests; listening with TTS. Research in
       `docs/research/proficiency-tests.md`.
 

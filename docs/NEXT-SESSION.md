@@ -14,6 +14,11 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 - **JLPT practice tests built** (ADR 0015, 2026-10-27): mock exam per level, full or half, timer,
   pass estimate, review with explanations, report bad questions, cards from missed words, retry.
   Tested with fakes only (core tests + e2e).
+- **AI output kept and reused** (ADR 0016, owner's request 2026-10-27): every request logged
+  (`ai_log`), question bank for practice tests and level check (`item_bank`; practice tests
+  choose bank first / half new / all new, optionally repeating seen questions), cached simpler
+  sentences and card sentences (`ai_cache`), savings in Settings. Schema v12 (backfills the bank
+  from earlier tests).
 - **Confirmed by the owner on their collection:** the API key works; card fields pick the meaning
   that fits the sentence; kanji setup: both note types mapped (Kanji / Word / Mnemonic), sync read
   2,508 kanji; "all looks good".
@@ -22,7 +27,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   stats over days, interests, reading fixes.
 - Last commit `bee00de` on `main`. Latest Windows installer given to the owner (kanji setup fix):
   https://github.com/drkthng/ankura/actions/runs/40498469483/artifacts/12731158630
-- Tests: 84 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+- Tests: 89 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
   (`tools/dev/e2e_smoke.py`) covering every screen. All passing.
 - **User docs:** `README.md` links one guide per feature in `docs/guide/`; update the matching
   guide with every user-facing change (CLAUDE.md says so too). Build docs: `docs/DEVELOPING.md`.
@@ -69,6 +74,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `interests.rs` | Interest profile (setting `interests`: weighted topics, avoid list), `pick` (by weight), `suggest` (AI, from pasted texts and asked-for topics) |
 | `proficiency.rs` | Level check (ADR 0014): bundled JLPT lists (`data/`, tanos CC BY), vocab yes/no with pseudowords, kanji readings with rule distractors, AI grammar/reading checked by a solver call, latent-level scoring (`p_right` guessing model), `tests`/`test_items` |
 | `practice.rs` | JLPT practice tests (ADR 0015): `layout` (大問 counts and minutes per level, half), words picked from the lists, AI items per type written in parallel (`PARALLEL` = 4) and checked by `proficiency::solve`, kanji readings by rule + dictionary check, ★ ordering built in code, level-drift check with the tokenizer, `prepare` resumable/stoppable, `sheet`/`answer`/`time`, scoring (scaled pass line, sectional minimums, verdict, A/B/C), `review`, `report`, `retry`. Reuses the `tests`/`test_items` tables (kind `practice`/`retry`, schema v11: `config`, `reported`) |
+| `memory.rs` | Kept AI output (ADR 0016): `Recorded` (wraps any `Llm`, logs to `ai_log`; the app's `llm()` returns it), question bank (`bank_add`, `bank_candidates`, `bank_used`, `bank_report`, `bank_counts`), `cache_get`/`cache_put` (`simplify` by sentence, `card_sentence` by word), `reused` counters, `stats`, `backfill` (v12 upgrade) |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -87,7 +93,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0015 in `docs/adr/`. Most relevant now: 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0016 in `docs/adr/`. Most relevant now: 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -133,7 +139,8 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    may drop many; `grammar_items` errors if none survive). **Practice tests with the real model:**
    preparation time and cost (a full N1 is ~15-25 calls, 4 at a time), how many items the check
    drops per type (a type that stays short is used with fewer items), quality of 用法, 表記 and ★
-   items, whether the level-drift check drops too much, prompt lengths for long texts. Ask the
+   items, whether the level-drift check drops too much, prompt lengths for long texts. Check
+   the bank fills as expected (Settings → AI shows counts; `item_bank` table). Ask the
    owner to report bad questions; they are stored with `reported = 1` in `test_items`.
 2. **Next feature (owner's order):** listening (TTS), then Italian (CILS) and Spanish
    (DELE/SIELE). Ask the owner before starting; they may have new requests.

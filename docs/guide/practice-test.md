@@ -16,12 +16,20 @@ Pick:
 - **Length.** *Full* has about as many questions as the real exam (N5 43, N4 57, N3 74, N2 73,
   N1 70, without listening) and its time (N5 60 minutes … N1 110). *Half* keeps every question
   type with half the questions and half the time.
+- **Questions.** Every question Ankura writes is kept in a question bank, also the spare ones a
+  test didn't need. *Bank first* (the default) takes as many as it can from there and has the AI
+  write the rest; *Half new* takes at most half; *All new* has everything written fresh. Only
+  questions you haven't had in a test are reused, unless you tick *Include questions from
+  earlier tests*. Below the choices Ankura shows how many questions the bank has for the level
+  and how many the new test takes from it; when it can take all of them, the test is ready at
+  once, with no AI requests. Reported questions never come back.
 - **Timer.** On: each part counts down from the official time. When time is up, Ankura tells you;
   you can hand in or keep going, and the result marks the part as overtime. Off: the clock just
   counts up.
 
-Then **Prepare the test**. Ankura writes all the questions before you start: a few minutes for a
-full test, about 15-25 AI requests (half of that for a half test). You can stop and continue
+Then **Prepare the test**. Ankura writes the questions the bank can't supply before you start: for
+a full test written from scratch a few minutes and about 15-25 AI requests (half of that for a
+half test); less when the bank helps. You can stop and continue
 later; questions already written are kept. This needs the AI ([AI setup](ai.md)); the AI is sent
 the level and the words to build questions on, never anything about you.
 
@@ -61,7 +69,8 @@ easier or harder than the real ones.
 - **Review answers** shows every question (or only the missed ones) with your answer, the right
   one, and an explanation.
 - **Report a bad question** if a question is wrong or has two right answers. It's left out of
-  the score straight away, and stored so later versions can learn from it.
+  the score straight away, never reused in a later test, and stored so later versions can learn
+  from it.
 - **Anki card for …** drafts a card for the word a missed vocabulary question was about, the same
   way as from the reader ([Cards](cards.md)); **Anki cards for all missed words** does it for all
   of them.

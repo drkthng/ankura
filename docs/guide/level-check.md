@@ -22,7 +22,9 @@ Keyboard: **K** / **D** for know / don't know, **1-4** for the options.
 Grammar and reading are written by the AI while you work (the first grammar part while you do the
 words). A second AI call answers every question without the key; questions it gets wrong or finds
 ambiguous are dropped, and so are reading questions it can answer without the passage. This
-needs the AI ([AI setup](ai.md)); it is sent only the level, never anything about you.
+needs the AI ([AI setup](ai.md)); it is sent only the level, never anything about you. Spare
+questions are kept in a bank: a later level check uses the ones you haven't seen before asking
+the AI for more, and never repeats a question you have answered.
 
 ## Starting level
 
