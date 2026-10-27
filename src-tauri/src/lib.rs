@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::kanji;
+use ankura_core::{kanji, primitives};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -22,10 +22,12 @@ use ankura_core::store::{
 use ankura_core::tokenize::SudachiTokenizer;
 use ankura_core::WordKey;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub struct AppState {
     store: Mutex<Store>,
+    /// Set to stop a running primitive analysis after its current batch.
+    stop_analysis: std::sync::atomic::AtomicBool,
     tokenizer: RwLock<Option<Arc<SudachiTokenizer>>>,
     data_dir: PathBuf,
 }
@@ -570,6 +572,74 @@ async fn kanji_undo_story(app: AppHandle, kanji: String) -> CmdResult<usize> {
     .await
 }
 
+// --- consistent primitive names (ADR 0013 point 5) ---
+
+#[tauri::command]
+async fn primitives_status(app: AppHandle) -> CmdResult<primitives::AnalysisStatus> {
+    blocking(app, |s| primitives::status(&s.store()).map_err(err)).await
+}
+
+/// Analyses the stories not analysed yet; emits `primitives-progress` {done, total}.
+#[tauri::command]
+async fn primitives_analyse(app: AppHandle) -> CmdResult<primitives::AnalysisStatus> {
+    let handle = app.clone();
+    blocking(app, move |s| {
+        use std::sync::atomic::Ordering;
+        s.stop_analysis.store(false, Ordering::SeqCst);
+        let llm = s.llm()?;
+        let progress = |done: usize, total: usize| {
+            let _ = handle.emit("primitives-progress", serde_json::json!({"done": done, "total": total}));
+        };
+        primitives::analyse(&s.own_store()?, &llm, progress, || s.stop_analysis.load(Ordering::SeqCst)).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+fn primitives_stop(app: AppHandle) {
+    app.state::<AppState>().stop_analysis.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[tauri::command]
+async fn primitives_reset(app: AppHandle) -> CmdResult<()> {
+    blocking(app, |s| primitives::reset_analysis(&s.store()).map_err(err)).await
+}
+
+#[tauri::command]
+async fn primitives_list(app: AppHandle) -> CmdResult<Vec<primitives::PrimitiveRow>> {
+    blocking(app, |s| primitives::list(&s.store()).map_err(err)).await
+}
+
+#[tauri::command]
+async fn primitives_approve(app: AppHandle, names: BTreeMap<String, Vec<String>>) -> CmdResult<()> {
+    blocking(app, move |s| primitives::approve(&s.store(), &names).map_err(err)).await
+}
+
+#[tauri::command]
+async fn primitives_candidates(app: AppHandle) -> CmdResult<Vec<primitives::Candidate>> {
+    blocking(app, |s| primitives::candidates(&s.store()).map_err(err)).await
+}
+
+/// New versions of the stories (names only); nothing is written until the user saves each one.
+#[tauri::command]
+async fn primitives_rewrite(app: AppHandle, kanji: Vec<String>) -> CmdResult<Vec<primitives::Rewrite>> {
+    blocking(app, move |s| {
+        let llm = s.llm()?;
+        primitives::rewrite(&s.own_store()?, &llm, &kanji).map_err(err)
+    })
+    .await
+}
+
+/// Saves a rewritten story (as `kanji_save_story`) and keeps its analysis current.
+#[tauri::command]
+async fn primitives_save(app: AppHandle, kanji: String, story: String) -> CmdResult<usize> {
+    blocking(app, move |s| {
+        let anki = s.anki();
+        primitives::save_rewrite(&s.store(), &anki, &kanji, &story).map_err(err)
+    })
+    .await
+}
+
 // --- stats (ROADMAP M3) ---
 
 /// Characters read in a paragraph that counted as read; `day` is the user's local date.
@@ -742,7 +812,12 @@ pub fn run() {
             let store = Store::open(&data_dir.join("ankura.db"))?;
             // Development and testing: preset dictionaries through the environment.
             let sudachi = std::env::var("ANKURA_SUDACHI_DIC").ok().or(store.setting("sudachi_dic")?);
-            let state = AppState { store: Mutex::new(store), tokenizer: RwLock::new(None), data_dir };
+            let state = AppState {
+                store: Mutex::new(store),
+                stop_analysis: std::sync::atomic::AtomicBool::new(false),
+                tokenizer: RwLock::new(None),
+                data_dir,
+            };
             if let Some(path) = sudachi {
                 if let Err(e) = state.load_tokenizer(std::path::Path::new(&path)) {
                     eprintln!("Sudachi dictionary at {path} didn't load: {e}");
@@ -790,6 +865,15 @@ pub fn run() {
             kanji_new_story,
             kanji_save_story,
             kanji_undo_story,
+            primitives_status,
+            primitives_analyse,
+            primitives_stop,
+            primitives_reset,
+            primitives_list,
+            primitives_approve,
+            primitives_candidates,
+            primitives_rewrite,
+            primitives_save,
             reading_stats,
             phrase_info,
             card_options,

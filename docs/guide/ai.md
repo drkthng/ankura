@@ -7,7 +7,7 @@ These features use an AI model:
 - [Write for me](write-for-me.md) texts;
 - *Simplify this sentence* ([Reading](reading.md#help-with-a-sentence));
 - new sentences and filled-in fields for [cards](cards.md);
-- new kanji mnemonics ([Kanji](kanji.md)).
+- new kanji mnemonics and consistent primitive names ([Kanji](kanji.md)).
 
 Everything else works without one.
 
@@ -44,6 +44,8 @@ Only when you use an AI feature, and only to the provider you chose:
 - **New card sentence:** the word and up to 400 known words.
 - **New kanji mnemonic:** the kanji, its keyword and current story, and up to six of your other
   kanji stories (as examples of your style and primitive names).
+- **Primitive names:** your kanji, keywords and stories (all of them, in batches, when you analyse),
+  and the stories to update with their old and approved names.
 - **Filling a card:** the word, sentence, readings, dictionary meanings, and your three newest
   notes of the chosen note type (their field contents), as examples.
 

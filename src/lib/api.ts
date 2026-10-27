@@ -219,6 +219,28 @@ export interface NewStory {
   primitives: { component: string; name: string }[];
 }
 
+export interface PrimitiveRow {
+  component: string;
+  names: { name: string; count: number; kanji: string[] }[];
+  rtk_name: string;
+  approved: string[];
+  is_approved: boolean;
+  clash: boolean;
+}
+
+export interface StoryCandidate {
+  kanji: string;
+  keyword: string;
+  story: string;
+  replacements: { component: string; old: string; new: string[] }[];
+}
+
+export interface StoryRewrite {
+  kanji: string;
+  old: string;
+  new: string;
+}
+
 export interface Friction {
   key: WordKey;
   display: string;
@@ -336,6 +358,15 @@ export const api = {
   kanjiNewStory: (kanji: string) => invoke<NewStory>("kanji_new_story", { kanji }),
   kanjiSaveStory: (kanji: string, story: string) => invoke<number>("kanji_save_story", { kanji, story }),
   kanjiUndoStory: (kanji: string) => invoke<number>("kanji_undo_story", { kanji }),
+  primitivesStatus: () => invoke<{ with_story: number; analysed: number }>("primitives_status"),
+  primitivesAnalyse: () => invoke<{ with_story: number; analysed: number }>("primitives_analyse"),
+  primitivesStop: () => invoke<void>("primitives_stop"),
+  primitivesReset: () => invoke<void>("primitives_reset"),
+  primitivesList: () => invoke<PrimitiveRow[]>("primitives_list"),
+  primitivesApprove: (names: Record<string, string[]>) => invoke<void>("primitives_approve", { names }),
+  primitivesCandidates: () => invoke<StoryCandidate[]>("primitives_candidates"),
+  primitivesRewrite: (kanji: string[]) => invoke<StoryRewrite[]>("primitives_rewrite", { kanji }),
+  primitivesSave: (kanji: string, story: string) => invoke<number>("primitives_save", { kanji, story }),
   recordReading: (chars: number) => invoke<void>("record_reading", { day: localDay(), chars }),
   readingStats: () => invoke<Stats>("reading_stats", { today: localDay() }),
   simplifySentence: (sentence: string) => invoke<Simplified>("simplify_sentence", { sentence }),

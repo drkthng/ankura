@@ -12,6 +12,7 @@ pub mod knowledge;
 pub mod llm;
 pub mod mapping;
 pub mod normalize;
+pub mod primitives;
 pub mod reader;
 pub mod stats;
 pub mod store;

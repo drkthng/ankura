@@ -342,6 +342,10 @@ pub fn new_story(store: &Store, llm: &dyn Llm, kanji: &str) -> Result<NewStory> 
     for (ek, kw, s) in &examples {
         prompt.push_str(&format!("- {ek} ({kw}): {s}\n"));
     }
+    let approved = crate::primitives::approved_for_prompt(store)?;
+    if !approved.is_empty() {
+        prompt.push_str(&format!("\nThe learner's approved primitive names (use exactly these): {approved}\n"));
+    }
     prompt.push_str(&format!("\nKanji: {kanji}\nKeyword: {}\nCurrent story (hard to remember): {}\n", plain_text(&k.keyword), k.story));
     let v = llm.json(STORY_SYSTEM, &prompt, &story_schema())?;
     serde_json::from_value(v).map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))

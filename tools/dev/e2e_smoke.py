@@ -405,6 +405,22 @@ def main():
         assert "crouches" in [u for u in updates if "fields" in u][-1]["fields"]["Story"], updates
         d.js("document.querySelector('.backdrop').click()")
 
+        # Consistent primitive names (ADR 0013 point 5): analyse, approve one name, update a story.
+        d.click("//nav//button[normalize-space()='Kanji']")
+        d.click("//button[starts-with(normalize-space(), 'Analyse 2')]")
+        d.find("//div[contains(@class,'prim') and contains(@class,'clash')]//span[normalize-space()='口']", timeout=60)
+        names = d.js("return [...document.querySelectorAll('.prim.clash .name')].map(l => [l.textContent.trim(), l.querySelector('input').checked])")
+        print("primitive names:", names)
+        assert names == [["mouth ×1", True], ["opening ×1", False]], names
+        d.click("//button[normalize-space()='Save list']")
+        d.click("//button[starts-with(normalize-space(), 'Prepare new versions')]")
+        d.find("//div[contains(@class,'rw')]", timeout=60)
+        d.shot(out / "13c-primitives.png")
+        d.click("//button[normalize-space()='Save 1 to Anki']")
+        d.find("//div[contains(@class,'rw')]//p[contains(., 'saved')]", timeout=30)
+        updates = json.loads(OPENER.open("http://127.0.0.1:8765/updates").read())
+        assert "mouth-shaped" in [u for u in updates if "fields" in u][-1]["fields"]["Story"], updates
+
         d.click("//nav//button[normalize-space()='Cards']")
         d.find("//section[contains(@class,'draft')][2]//textarea", timeout=60)  # both filled in
         print("field names:", d.invoke("card_field_names"))

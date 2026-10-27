@@ -54,6 +54,16 @@ class Handler(BaseHTTPRequestHandler):
         props = list(body["output_config"]["format"]["schema"]["properties"])
         if props == ["sentence"]:
             answer = card_sentence(prompt)
+        elif props == ["kanji"]:
+            # Primitive analysis: every story uses 口, under alternating names (a clash to resolve).
+            kanji = re.findall(r"^(\S) \| ", prompt, re.M)
+            answer = {"kanji": [
+                {"kanji": k, "primitives": [{"component": "口", "name": ["mouth", "opening"][i % 2], "rtk_name": "mouth"}]}
+                for i, k in enumerate(kanji)
+            ]}
+        elif props == ["stories"]:
+            blocks = re.findall(r"^Kanji: (\S+) .*?\nStory: (.*)$", prompt, re.M)
+            answer = {"stories": [{"kanji": k, "story": story.replace("A ", "A mouth-shaped ", 1)} for k, story in blocks]}
         elif set(props) == {"story", "primitives"}:
             kanji = (re.search(r"^Kanji: (\S+)$", prompt, re.M) or [None, "?"])[1]
             keyword = (re.search(r"^Keyword: (.+)$", prompt, re.M) or [None, "?"])[1]

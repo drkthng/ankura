@@ -30,7 +30,8 @@ notes.
   Anki. → [Cards](docs/guide/cards.md)
 - **Kanji with your RTK cards.** Click a kanji to see your kanji card (keyword, story) and your
   words that use it. When a story won't stick, the AI writes a new one from the kanji's primitives;
-  you confirm before it goes into Anki, and can undo it. → [Kanji](docs/guide/kanji.md)
+  you confirm before it goes into Anki, and can undo it. Make primitive names consistent across
+  your whole set in one go. → [Kanji](docs/guide/kanji.md)
 - **See your progress.** Characters read per day, reading streaks, and "stealth leeches": words
   Anki says you know, but you keep looking up. → [Stats](docs/guide/stats.md)
 
@@ -61,8 +62,8 @@ has the details.
 ## Status
 
 Ankura is young and used daily by its first user. Japanese on desktop (Windows, macOS, Linux)
-comes first. Next on the [roadmap](docs/ROADMAP.md): consistent primitive names across a kanji set,
-correctable furigana, an interest profile, and a proficiency test. Android, sync between devices,
+comes first. Next on the [roadmap](docs/ROADMAP.md): correctable furigana, an interest profile, and a
+proficiency test. Android, sync between devices,
 Italian and Spanish come later. Design decisions are recorded in [`docs/adr`](docs/adr).
 
 ## Building from source

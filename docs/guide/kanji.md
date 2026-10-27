@@ -47,5 +47,24 @@ This is the one place Ankura changes notes you already have, so it's deliberatel
 - **Undo Ankura's change** puts the old story back. If you've edited the story in Anki since,
   Ankura leaves your version alone.
 
-Decision record: [ADR 0013](../adr/0013-kanji-and-rtk-mnemonics.md). Coming next: making
-primitive names consistent across your whole set.
+## Consistent primitive names
+
+Over years of stories, the same component tends to get different names ("mouth", "opening",
+"entrance"), and some components really are two things (月 as moon, and as flesh in body-part
+kanji). The **Kanji** screen cleans this up across your whole set, in three steps:
+
+1. **Read your stories.** The AI reads all your stories, about 40 per request, and notes which
+   primitives each one uses and the names it gives them. You see the progress and can stop; it
+   continues where it left off. Stories you change later are read again.
+2. **Primitive names.** For each component: the names you use, how often, and RTK's name for
+   reference. Components with several names come first. Tick the names to keep (usually one; two
+   where the component really is two things), or type your own, and **Save list**. New mnemonics
+   use this list from then on.
+3. **Update stories.** Ankura lists the stories that use a name not on your list, and the AI
+   writes new versions that change only those names. You see old and new side by side, untick any
+   you'd rather keep, and save the rest. The same rules as for a single new mnemonic apply:
+   mnemonic field only, old text kept, undo from the kanji pop-up.
+
+![The Kanji screen: a component with two names, and a story to update](../img/primitives.png)
+
+Decision record: [ADR 0013](../adr/0013-kanji-and-rtk-mnemonics.md).

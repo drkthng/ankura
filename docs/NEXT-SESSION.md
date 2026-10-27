@@ -51,6 +51,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `normalize.rs` | Anki field cleaning (HTML, ruby, `漢字[かんじ]`, cloze, sound, lists, brackets); `marked_text` (bold/italic/underline) |
 | `mapping.rs` | Field → word keys (light verbs, phrases + their words, reading plausibility, unmarked-sentence fallback, word picked by reading), preview, `suggest_mapping` (content-based), `sync_anki` (AnkiConnect, FSRS buckets via `prop:s`/`prop:r`, overdue buckets via `prop:due` without FSRS, per-note-type report, `Scope` excludes suspended) |
 | `kanji.rs` | Kanji note mappings (+ `suggest_mapping`), kanji table filled by sync, `card` (pop-up), `new_story` (RTK mnemonic), `save_story` / `undo_story` (mnemonic field only, `kanji_edits` backup, tag `ankura-edited`) |
+| `primitives.rs` | Consistent primitive names: `analyse` (batches of 40, progress, stop, resumable; `kanji_primitives`, `kanji_analysed`), `list` (clashes first), `approve` (`primitive_names`, also used by `kanji::new_story`), `candidates`, `rewrite`, `save_rewrite` |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -63,7 +64,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |
-| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, AnkiSetup, Settings |
+| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), AnkiSetup (incl. kanji note mapping), Settings |
 | `src/components/` | `WordPopover`, `KanjiPanel`, `CoverageBar` |
 | `tools/dev/` | `fake_ankiconnect.py` (incl. a "Satzkarten" note type like the owner's), `fake_llm.py`, `jamdict_to_yomitan.py`, `e2e_smoke.py` |
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
@@ -109,7 +110,10 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 
 ## 5. Next steps, in order
 
-0. **Anki cards (ADR 0012) and phrase selection: built, tested with fakes only.** The owner's
+0. **Untested on the owner's collection:** kanji (ADR 0013: does `suggest_mapping` find their
+   "Kanji" / "Kanji reverse" fields? story language and formatting; primitive analysis on a few
+   thousand stories: cost, time, quality of the clash list), stats, simplify, phrase matching.
+   **Anki cards (ADR 0012) and phrase selection: built, tested with fakes only.** The owner's
    first real use is the real test: check that the fields come out like their "Japanisch"
    notes (bold word in "Original Sentence", reading field = word reading, `<br>`, sentence
    reading), and that `addNote` goes into the right deck.
@@ -127,8 +131,8 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 4. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方)
    and counter sound changes (三匹) are wrong in furigana; Sudachi splits some words oddly
    (一時的 → 一|時|的).
-5. **M3** (ROADMAP, owner's order 2026-10-27): stats ✓, kanji step 1 ✓ (ADR 0013 points 1-4);
-   next kanji step 2 (consistent primitive names), correctable furigana, interest profile, then
+5. **M3** (ROADMAP, owner's order 2026-10-27): stats ✓, kanji ✓ (ADR 0013, all points);
+   next correctable furigana, interest profile, then
    the proficiency test (research: `docs/research/proficiency-tests.md`; open question: which
    frequency list, licence).
 6. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,
