@@ -42,5 +42,7 @@ check, not as fact.
   commands), `src` (Svelte 5 UI), `tools/dev` (fake AnkiConnect, dev JMdict, e2e smoke test).
 - Build / test: `npm install`, `npm run tauri dev`, `npm run check`, `cargo test -p ankura-core`
   (set `ANKURA_SUDACHI_DIC` to a SudachiDict `system.dic` to include the tokenizer tests). E2E:
-  `npx tauri build --debug --no-bundle` then `tools/dev/e2e_smoke.py` (see README).
+  `npx tauri build --debug --no-bundle` then `tools/dev/e2e_smoke.py` (see `docs/DEVELOPING.md`).
 - Record architecture decisions in `docs/adr/NNNN-title.md`.
+- User docs: `README.md` (overview, getting started) links to one guide per feature in
+  `docs/guide/`. Update the matching guide when a feature changes.

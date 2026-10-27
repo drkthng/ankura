@@ -1,76 +1,70 @@
 # Ankura
 
-A desktop extensive-reading tool for Japanese that knows your Anki cards. Paste a text and read it
-with every word coloured by what Anki says you know. Tap a word for its reading and meaning, and
-tell Ankura when you don't know it. Ankura counts what you've seen and looked up, and will use AI
-to write new texts around the words you're learning (ROADMAP M2).
+**Read real Japanese with your Anki knowledge switched on.**
 
-Status: early development, milestone M1 of [`docs/ROADMAP.md`](docs/ROADMAP.md). Desktop and
-Japanese first (ADR 0009); Android, sync, Italian and Spanish come later.
+Ankura is a desktop reading app for Japanese learners who use Anki. Paste any text and every word
+is coloured by what your Anki cards say you know. A click shows a word's reading and meaning.
+When a text is too hard, Ankura's AI writes one for you around the words you're learning, using
+words you already know. Words you meet while reading become Anki cards in the style of your own
+notes.
 
-## Using it
+![The reader: words coloured by Anki state, a word's pop-up with a simpler version of its sentence](docs/img/reader.png)
 
-1. Install Anki's [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on and keep Anki
-   open while Ankura syncs. Ankura only reads from Anki.
-2. Start Ankura. In **Settings**, download the Japanese tokenizer dictionary (SudachiDict core,
-   about 77 MB) and JMdict, or import any Yomitan dictionary zip you already have.
-3. In **Anki**, connect, then for each note type with Japanese words pick the field that holds the
-   word (and the reading field, if any). Check the preview, save, and press **Sync now**.
-4. In **Library**, paste a text and start reading.
+## What it does
 
-## Developing
+- **Read with your Anki knowledge.** Words you know stay plain. Words you're learning, new in
+  Anki, or not in Anki at all are coloured, so you see at a glance how hard a text is. Furigana
+  appear only on words you don't know yet. → [Reading](docs/guide/reading.md)
+- **Works with any Anki collection.** Point Ankura at the field that holds the word, even the bold
+  word in a sentence card. It reads your cards' intervals (or FSRS memory) and knows which words
+  are solid and which are fading. Your cards are never changed. → [Connecting Anki](docs/guide/anki.md)
+- **Texts written for you.** Pick a few words to practise. Ankura asks the AI for a short story
+  that uses them, checks that at least 95% of its words are ones you know, and asks for a rewrite
+  if not. → [Write for me](docs/guide/write-for-me.md)
+- **Help with a hard sentence.** "Simplify this sentence" rewrites it with words you know; the
+  translation is there when you want it. Select several words to look up a whole phrase
+  (気になります → 気になる). → [Reading](docs/guide/reading.md#help-with-a-sentence)
+- **Anki cards from what you read.** One click puts a word on your card list, with the sentence you
+  read it in or a new sentence where only that word is new. The AI fills the card like your own
+  notes, picking the meaning the word has in that sentence. You check each card, then add it to
+  Anki. → [Cards](docs/guide/cards.md)
+- **See your progress.** Characters read per day, reading streaks, and "stealth leeches": words
+  Anki says you know, but you keep looking up. → [Stats](docs/guide/stats.md)
 
-Layout:
+## Getting started
 
-| Path | What |
-|---|---|
-| `crates/ankura-core` | The engine: tokenizer, furigana, Anki mapping and sync, dictionary, SQLite store, reader analysis. No UI or platform code. |
-| `src-tauri` | Tauri v2 shell: app state and the commands the UI calls. |
-| `src` | Svelte 5 UI. |
-| `tools/dev` | Development helpers: fake AnkiConnect, dev JMdict builder, end-to-end smoke test. |
-| `docs` | Research, architecture options, ADRs, roadmap. |
-| `spikes` | Throwaway experiments (S3 tokenizer comparison). |
+1. **Install Ankura.** There are no signed releases yet. Download the installer for your system
+   from the latest successful [Build run](https://github.com/drkthng/ankura/actions/workflows/build.yml)
+   (Artifacts section, GitHub login needed). Windows SmartScreen will warn because the installer
+   isn't signed; choose "More info" → "Run anyway".
+2. **Install AnkiConnect** in Anki ([add-on 2055492159](https://ankiweb.net/shared/info/2055492159))
+   and keep Anki open while Ankura talks to it.
+3. **Set up dictionaries.** In Ankura's **Settings**, download SudachiDict (about 77 MB; Ankura uses
+   it to split Japanese into words) and JMdict (meanings). Or import any Yomitan dictionary you
+   already have.
+4. **Connect Anki.** On the **Anki** screen, tell Ankura which field holds the word in each note
+   type ("Suggest fields" usually gets it right), check the preview, save, and press **Sync now**.
+5. **Read.** In **Library**, paste a text and start reading.
+6. Optional: **set up the AI** for texts, simpler sentences and cards. → [AI setup](docs/guide/ai.md)
 
-Requirements: Rust (stable), Node 22+, and the Tauri prerequisites for your system:
+## Your data
 
-- **Windows:** Rust and Microsoft's C++ build tools. WebView2 ships with Windows 10 and 11.
+Everything Ankura learns about you (texts, look-ups, marks, stats, card drafts) stays in a local
+database. **Settings** shows its folder. API keys are kept in your system's keychain. When you use
+an AI feature, the request goes to the AI provider you chose. It contains the words or sentence
+involved and a list of up to 400 of your known words. [AI setup](docs/guide/ai.md#what-is-sent)
+has the details.
 
-  ```powershell
-  winget install --id Rustlang.Rustup
-  winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-  # then, in a new terminal:
-  rustup default stable-msvc
-  ```
+## Status
 
-- **macOS:** `xcode-select --install`, then Rust from <https://rustup.rs>.
-- **Linux (Debian/Ubuntu):** Rust from <https://rustup.rs>, plus
-  `libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`.
+Ankura is young and used daily by its first user. Japanese on desktop (Windows, macOS, Linux)
+comes first. Next on the [roadmap](docs/ROADMAP.md): a kanji pop-up with RTK-style mnemonics,
+correctable furigana, an interest profile, and a proficiency test. Android, sync between devices,
+Italian and Spanish come later. Design decisions are recorded in [`docs/adr`](docs/adr).
 
-The first build compiles all dependencies and takes several minutes.
+## Building from source
 
-```bash
-npm install
-npm run tauri dev                # run the app with hot reload
-npm run check                    # type-check the UI
-cargo test -p ankura-core        # engine tests
-ANKURA_SUDACHI_DIC=/path/to/system.dic cargo test -p ankura-core   # also the tests that need Sudachi
-npx tauri build                  # installers for the current platform
-```
-
-Dictionaries for development: `ANKURA_SUDACHI_DIC` points the app and the tests at a SudachiDict
-`system.dic`. `tools/dev/jamdict_to_yomitan.py` builds a JMdict zip from PyPI's `jamdict-data` when
-GitHub release downloads aren't reachable.
-
-Without Anki: `python3 tools/dev/fake_ankiconnect.py` serves a small sample collection on port 8765.
-Without an AI key: `python3 tools/dev/fake_llm.py` stands in for the Anthropic API on port 8766; start
-the app with `ANKURA_LLM_URL=http://127.0.0.1:8766 ANKURA_API_KEY=test`.
-
-End-to-end smoke test (Linux, needs `tauri-driver`, `webkit2gtk-driver` and Xvfb):
-
-```bash
-npx tauri build --debug --no-bundle
-python3 tools/dev/e2e_smoke.py --sudachi /path/system.dic --dict /path/JMdict.zip --out shots/
-```
+See [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 ## Licence
 

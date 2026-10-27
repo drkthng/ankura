@@ -180,7 +180,7 @@
   </section>
 
   <section class="card">
-    <h2>AI for “Write for me”</h2>
+    <h2>AI</h2>
     <div class="grid">
       <label for="mode">How Ankura asks the AI</label>
       <select id="mode" bind:value={mode} onchange={switchMode}>
