@@ -53,9 +53,9 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
 | `dict.rs` | Yomitan zip import (plain and structured-content glossaries), lookup by spelling or reading |
-| `reader.rs` | Text → paragraphs of tokens with furigana, state (mark > anki > basic word > parts), coverage; `phrase` (a selection as one token: 気になります → 気になる) |
+| `reader.rs` | Text → paragraphs of tokens with furigana, state (mark > anki > basic word > parts), coverage; known phrases merged into one token (`phrase_form`: 気になります → 気になる, also used by sync); `phrase` (a selection as one token) |
 | `llm.rs` | Anthropic Messages (raw HTTPS, `anthropic-version: 2026-10-21`, `output_config` format+effort, `fallbacks: "default"`) and OpenRouter |
-| `generate.rs` | `prepare` / `check_draft` / `feedback` / `save`, shared by the automatic loop (`generate_text`: retries, best attempt saved) and copy & paste (`chat_prompt`, `parse_answer` lenient, `submit_answer`) |
+| `generate.rs` | `prepare` / `check_draft` / `feedback` / `save`, shared by the automatic loop (`generate_text`: retries, best attempt saved) and copy & paste (`chat_prompt`, `parse_answer` lenient, `submit_answer`); `simplify_sentence` |
 | `anki.rs` | `AnkiSource` trait, AnkiConnect client with an action allow-list (add-only writes: `canAddNotesWithErrorDetail`, `addNote`), in-process fake for tests |
 | `cards.rs` | Card drafts (ADR 0012): `new_sentence` (i+1, checked, retried), `fill_fields` (AI copies the three newest notes of the chosen type), `drafts_for_text`, `add_to_anki` (tag `ankura`) |
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
@@ -78,8 +78,9 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
   `gh api repos/drkthng/ankura/actions/runs?head_sha=$(git rev-parse HEAD)`. Artifact link for the
   owner: `https://github.com/drkthng/ankura/actions/runs/<run_id>/artifacts/<artifact_id>` (ids
   from `gh api repos/drkthng/ankura/actions/runs/<run_id>/artifacts`).
-- **E2E flakiness:** WebKitWebDriver sometimes drops the session ("Remote end closed connection")
-  at a random step; kill leftovers (`pkill -x Xvfb ankura tauri-driver WebKitWebDriver` one by
+- **E2E flakiness:** WebKitWebDriver sometimes drops the session ("Remote end closed connection"),
+  usually right after the copy & paste flow writes to the clipboard (WebKitGTK under Xvfb?
+  unverified; Linux only, the Windows app uses WebView2); kill leftovers (`pkill -x Xvfb ankura tauri-driver WebKitWebDriver` one by
   one) and rerun. The fakes send `Connection: close` (ureq reused closed connections).
 - **Linux build prerequisites:**
   `apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev
@@ -118,9 +119,8 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    (`TARGET_COVERAGE` in `generate.rs`).
 2. **JMdict download** (`downloads.rs`, GitHub release URL) has never been run; if it fails for the
    owner, the fallback is "Import a Yomitan dictionary…".
-3. **Remaining M2:** "Simplify this sentence" (ROADMAP).
-4. **Known gaps:** phrase cards aren't matched in the reader (their words count instead);
-   incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方)
+3. **M2 is complete** ("Simplify this sentence" built 2026-10-27, fakes only).
+4. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方)
    and counter sound changes (三匹) are wrong in furigana; Sudachi splits some words oddly
    (一時的 → 一|時|的).
 5. **M3** (ROADMAP): interest profile, stats and "stealth leeches", kanji popover (their unmapped Kanji note types could feed kanji knowledge), correctable

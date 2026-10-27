@@ -196,6 +196,14 @@ export interface ChatOutcome {
   saved: GenerateResult | null;
 }
 
+export interface Simplified {
+  tokens: ReaderToken[];
+  simple: string;
+  /** English translation of the original sentence. */
+  translation: string;
+  coverage: number;
+}
+
 export interface CardDraft {
   id: string;
   key: WordKey;
@@ -269,6 +277,7 @@ export const api = {
     invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),
   openClaudeAi: () => invoke<void>("open_claude_ai"),
 
+  simplifySentence: (sentence: string) => invoke<Simplified>("simplify_sentence", { sentence }),
   phraseInfo: (selection: string) => invoke<ReaderToken | null>("phrase_info", { selection }),
   cardOptions: () => invoke<CardOptions>("card_options"),
   cardFieldNames: () => invoke<string[]>("card_field_names"),

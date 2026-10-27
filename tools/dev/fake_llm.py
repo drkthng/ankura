@@ -54,6 +54,8 @@ class Handler(BaseHTTPRequestHandler):
         props = list(body["output_config"]["format"]["schema"]["properties"])
         if props == ["sentence"]:
             answer = card_sentence(prompt)
+        elif set(props) == {"simple", "translation"}:
+            answer = {"simple": "今日は雨だった。", "translation": "It was raining today."}
         elif set(props) == {"title", "paragraphs", "examples"}:
             answer = draft(prompt)
         else:

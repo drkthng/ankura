@@ -571,6 +571,29 @@ impl Store {
         Ok(out)
     }
 
+    /// Every lemma Ankura has a state for (from Anki or the user's marks), to find phrases fast.
+    pub fn all_lemmas(&self, lang: &str) -> Result<std::collections::HashSet<String>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT lemma FROM knowledge WHERE lang = ?1 UNION SELECT lemma FROM word_overrides WHERE lang = ?1",
+        )?;
+        let rows = st.query_map([lang], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Keys with this lemma, whatever their reading: marked ones first, then Anki's strongest.
+    pub fn keys_for_lemma(&self, lang: &str, lemma: &str) -> Result<Vec<WordKey>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT reading FROM (
+                 SELECT reading, 0 AS o, 0 AS s FROM word_overrides WHERE lang = ?1 AND lemma = ?2
+                 UNION ALL SELECT reading, 1, -strength FROM knowledge WHERE lang = ?1 AND lemma = ?2)
+             GROUP BY reading ORDER BY min(o), min(s)",
+        )?;
+        let rows = st.query_map(params![lang, lemma], |r| {
+            Ok(WordKey { lang: lang.to_string(), lemma: lemma.to_string(), reading: r.get(0)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Lemmas the user knows, most stable first: Anki's known words, then words marked known.
     pub fn known_lemmas(&self, lang: &str, limit: usize) -> Result<Vec<String>> {
         let mut st = self.conn.prepare(

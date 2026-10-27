@@ -1,12 +1,14 @@
 //! A text as the reader shows it: paragraphs of tokens with furigana, word state and coverage.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::furigana::{Segment, segments};
 use crate::kana::has_kanji;
 use crate::knowledge::WordState;
 use crate::store::Store;
-use crate::tokenize::{TokenKind, Tokenizer};
+use crate::tokenize::{Token, TokenKind, Tokenizer};
 use crate::{Result, WordKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,9 +46,37 @@ pub struct ReaderDoc {
     pub coverage: Coverage,
 }
 
+/// The form a phrase is stored and matched under: its words up to the last content word, with
+/// that word in its dictionary form (気になります → 気になる), and the matching reading. `None`
+/// unless at least two tokens lead up to the last content word.
+pub(crate) fn phrase_form(toks: &[Token]) -> Option<(String, String)> {
+    let last = toks.iter().rposition(|t| matches!(t.kind, TokenKind::Word | TokenKind::Name))?;
+    let reading_of = |t: &Token| if t.reading.is_empty() { t.surface.clone() } else { t.reading.clone() };
+    let mut form = String::new();
+    let mut reading = String::new();
+    for t in &toks[..last] {
+        form.push_str(&t.surface);
+        reading.push_str(&reading_of(t));
+    }
+    form.push_str(&toks[last].dictionary_form);
+    reading.push_str(&toks[last].lemma_reading);
+    (last >= 1).then_some((form, reading))
+}
+
+/// The key Ankura already has for a phrase (from Anki or a mark), whatever its reading.
+fn known_phrase(store: &Store, lang: &str, form: &str) -> Result<Option<(WordKey, WordState, &'static str)>> {
+    for key in store.keys_for_lemma(lang, form)? {
+        let (state, source) = state_of(store, &key)?;
+        if state != WordState::Unknown || source == "mark" {
+            return Ok(Some((key, state, source)));
+        }
+    }
+    Ok(None)
+}
+
 /// A phrase the user selected (気になります), as one token: its dictionary form (気になる), reading
-/// and state. Prefers the form the dictionary knows: the last content word in its dictionary form,
-/// or else the selection as written. `None` for a selection without words.
+/// and state. Prefers a form Ankura already knows, then one the dictionary knows (that, or the
+/// selection as written). `None` for a selection without words.
 pub fn phrase(store: &Store, tok: &dyn Tokenizer, selection: &str) -> Result<Option<ReaderToken>> {
     let selection = selection.trim();
     let toks: Vec<_> =
@@ -54,31 +84,37 @@ pub fn phrase(store: &Store, tok: &dyn Tokenizer, selection: &str) -> Result<Opt
     let Some(last) = toks.iter().rposition(|t| matches!(t.kind, TokenKind::Word | TokenKind::Name)) else {
         return Ok(None);
     };
-    let reading_of = |t: &crate::tokenize::Token| if t.reading.is_empty() { t.surface.clone() } else { t.reading.clone() };
-    let mut base = String::new();
-    let mut base_reading = String::new();
-    for t in &toks[..last] {
-        base.push_str(&t.surface);
-        base_reading.push_str(&reading_of(t));
-    }
-    base.push_str(&toks[last].dictionary_form);
-    base_reading.push_str(&toks[last].lemma_reading);
+    let reading_of = |t: &Token| if t.reading.is_empty() { t.surface.clone() } else { t.reading.clone() };
+    let (base, base_reading) = phrase_form(&toks).unwrap_or_else(|| (toks[last].dictionary_form.clone(), toks[last].lemma_reading.clone()));
     let written: String = toks.iter().map(|t| t.surface.as_str()).collect();
     let written_reading: String = toks.iter().map(reading_of).collect();
+    let lang = tok.lang();
 
-    let mut chosen = (base.clone(), base_reading.clone());
-    for (form, reading) in [(base, base_reading), (written, written_reading)] {
-        if let Some(e) = crate::dict::lookup(store, &form, &reading)?.into_iter().find(|e| e.expression == form) {
-            chosen = (form, e.reading);
+    let mut found = None;
+    for form in [&base, &written] {
+        if let Some(k) = known_phrase(store, lang, form)? {
+            found = Some(k);
             break;
         }
     }
-    let (form, reading) = chosen;
-    let key = WordKey { lang: tok.lang().to_string(), lemma: form.clone(), reading };
-    let (state, source) = state_of(store, &key)?;
+    let (key, state, source) = match found {
+        Some(k) => k,
+        None => {
+            let mut chosen = (base.clone(), base_reading.clone());
+            for (form, reading) in [(base, base_reading), (written, written_reading)] {
+                if let Some(e) = crate::dict::lookup(store, &form, &reading)?.into_iter().find(|e| e.expression == form) {
+                    chosen = (form, e.reading);
+                    break;
+                }
+            }
+            let key = WordKey { lang: lang.to_string(), lemma: chosen.0, reading: chosen.1 };
+            let (state, source) = state_of(store, &key)?;
+            (key, state, source)
+        }
+    };
     Ok(Some(ReaderToken {
         surface: selection.to_string(),
-        dictionary_form: form,
+        dictionary_form: key.lemma.clone(),
         segments: vec![Segment { text: selection.to_string(), ruby: None }],
         kind: TokenKind::Word,
         key: Some(key),
@@ -86,6 +122,47 @@ pub fn phrase(store: &Store, tok: &dyn Tokenizer, selection: &str) -> Result<Opt
         source: source.into(),
         has_kanji: has_kanji(selection),
     }))
+}
+
+/// Longest phrase Ankura knows starting at token `i` (2-6 tokens, no punctuation; may end in
+/// auxiliaries or て/で after its last content word, as in 気になります or 気になって).
+fn phrase_at(
+    store: &Store,
+    lang: &str,
+    lemmas: &HashSet<String>,
+    toks: &[Token],
+    i: usize,
+) -> Result<Option<(usize, WordKey, WordState, &'static str)>> {
+    if !matches!(toks[i].kind, TokenKind::Word | TokenKind::Name | TokenKind::Grammar) {
+        return Ok(None);
+    }
+    let trailing_ok = |t: &Token| {
+        t.pos.first().is_some_and(|p| p == "助動詞") || (t.pos.get(1).is_some_and(|p| p == "接続助詞") && matches!(t.surface.as_str(), "て" | "で"))
+    };
+    for len in (2..=6).rev() {
+        let end = i + len;
+        if end > toks.len() {
+            continue;
+        }
+        let span = &toks[i..end];
+        if span.iter().any(|t| matches!(t.kind, TokenKind::Space | TokenKind::Symbol)) {
+            continue;
+        }
+        let Some(last) = span.iter().rposition(|t| matches!(t.kind, TokenKind::Word | TokenKind::Name)) else { continue };
+        if !span[last + 1..].iter().all(trailing_ok) {
+            continue;
+        }
+        let Some((form, _)) = phrase_form(span) else { continue };
+        let written: String = span.iter().map(|t| t.surface.as_str()).collect();
+        for f in [&form, &written] {
+            if lemmas.contains(f.as_str()) {
+                if let Some((key, state, source)) = known_phrase(store, lang, f)? {
+                    return Ok(Some((end, key, state, source)));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Very common words every learner knows but few have cards for, as Sudachi normalizes them
@@ -109,6 +186,9 @@ fn state_of(store: &Store, key: &WordKey) -> Result<(WordState, &'static str)> {
 }
 
 pub fn analyze(store: &Store, tok: &dyn Tokenizer, text: &str) -> Result<ReaderDoc> {
+    let lang = tok.lang();
+    // Everything Ankura has a state for: a span is only looked up when its form is one of these.
+    let phrase_lemmas: HashSet<String> = store.all_lemmas(lang)?;
     let mut paragraphs = Vec::new();
     let mut cov = Coverage::default();
     for line in text.lines() {
@@ -117,7 +197,36 @@ pub fn analyze(store: &Store, tok: &dyn Tokenizer, text: &str) -> Result<ReaderD
             continue;
         }
         let mut out = Vec::new();
-        for t in tok.tokenize(line)? {
+        let toks = tok.tokenize(line)?;
+        let mut i = 0;
+        while i < toks.len() {
+            // A phrase from Anki or the user's marks shows as one word (気になります).
+            if !phrase_lemmas.is_empty() {
+                if let Some((end, key, state, source)) = phrase_at(store, lang, &phrase_lemmas, &toks, i)? {
+                    let span = &toks[i..end];
+                    cov.words += 1;
+                    match state {
+                        s if s.is_known() => cov.known += 1,
+                        WordState::Learning => cov.learning += 1,
+                        WordState::New => cov.new += 1,
+                        _ => cov.unknown += 1,
+                    }
+                    out.push(ReaderToken {
+                        segments: span.iter().flat_map(|t| segments(&t.surface, &t.reading)).collect(),
+                        has_kanji: span.iter().any(|t| has_kanji(&t.surface)),
+                        dictionary_form: key.lemma.clone(),
+                        surface: span.iter().map(|t| t.surface.as_str()).collect(),
+                        kind: TokenKind::Word,
+                        key: Some(key),
+                        state,
+                        source: source.to_string(),
+                    });
+                    i = end;
+                    continue;
+                }
+            }
+            let t = toks[i].clone();
+            i += 1;
             let is_word = matches!(t.kind, TokenKind::Word | TokenKind::Name);
             let key = is_word.then(|| WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() });
             let (mut state, mut source) = match &key {
@@ -166,6 +275,35 @@ mod tests {
     use super::*;
     use crate::knowledge::{CardFacts, KnowledgeSettings};
     use crate::tokenize::test_support::sudachi;
+
+    #[test]
+    fn known_phrases_show_as_one_word() {
+        let Some(t) = sudachi() else { return };
+        let mut s = Store::open_in_memory().unwrap();
+        // A phrase card synced from Anki, in the form sync stores it (any reading).
+        let card = CardFacts { card_id: 1, note_id: 1, card_type: 2, queue: 2, interval: 60, lapses: 0, stability: None, retrievability: None };
+        let ki_key = WordKey { lang: "ja".into(), lemma: "気になる".into(), reading: "きになります".into() };
+        s.replace_anki_snapshot(&[(1, card)], &[(1, ki_key.clone())], &std::collections::HashMap::new(), &KnowledgeSettings::default())
+            .unwrap();
+        let doc = analyze(&s, t, "歴史がすごく気になります。気にしない。").unwrap();
+        let toks = &doc.paragraphs[0];
+        let ki = toks.iter().find(|x| x.surface == "気になります").expect("merged");
+        assert_eq!(ki.key.as_ref(), Some(&ki_key));
+        assert_eq!((ki.state, ki.dictionary_form.as_str()), (WordState::Known, "気になる"));
+        assert!(ki.segments.iter().any(|g| g.ruby.as_deref() == Some("き")), "furigana kept: {:?}", ki.segments);
+        // 気にする isn't the phrase: its words stay separate.
+        assert!(toks.iter().any(|x| x.surface == "気"), "{:?}", toks.iter().map(|x| &x.surface).collect::<Vec<_>>());
+
+        // A phrase the user marked (from a selection) matches as well, and the selection finds it.
+        let mark = WordKey { lang: "ja".into(), lemma: "途方に暮れる".into(), reading: "とほうにくれる".into() };
+        s.set_word_override(&mark, Some(WordState::MarkedKnown)).unwrap();
+        let doc = analyze(&s, t, "彼は途方に暮れていた。").unwrap();
+        let x = doc.paragraphs[0].iter().find(|x| x.dictionary_form == "途方に暮れる").expect("merged");
+        assert_eq!((x.surface.as_str(), x.source.as_str()), ("途方に暮れて", "mark"));
+        let sel = phrase(&s, t, "気になります").unwrap().unwrap();
+        assert_eq!(sel.key, Some(ki_key), "the selection uses the synced key");
+        assert_eq!(sel.state, WordState::Known);
+    }
 
     #[test]
     fn selected_phrases() {

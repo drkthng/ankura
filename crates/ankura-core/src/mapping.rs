@@ -9,6 +9,7 @@ use crate::anki::{AnkiSource, NoteInfo};
 use crate::kana::{has_kanji, is_all_kana, to_hiragana};
 use crate::knowledge::{CardFacts, KnowledgeSettings};
 use crate::normalize::{clean_field, marked_text};
+use crate::reader::phrase_form;
 use crate::store::{NoteTypeMapping, Store, TargetMode};
 use crate::tokenize::{TokenKind, Tokenizer};
 use crate::{Result, WordKey};
@@ -18,7 +19,7 @@ use crate::{Result, WordKey};
 pub enum FieldOutcome {
     /// One word.
     Word,
-    /// Several words; stored as a phrase key (matched in the reader later, ROADMAP M3).
+    /// Several words; stored as a phrase key in the form the reader matches (`reader::phrase_form`).
     Phrase,
     /// Nothing usable in the field.
     Empty,
@@ -84,10 +85,16 @@ pub fn keys_for_field(tok: &dyn Tokenizer, target: &str, reading_field: Option<&
                 }
             }
             many => {
-                let reading = hint.unwrap_or_else(|| many.iter().map(|t| t.lemma_reading.as_str()).collect());
-                keys.push((WordKey { lang: tok.lang().into(), lemma: cand.text.clone(), reading }, cand.text.clone()));
-                // The reader doesn't match phrases yet (ROADMAP), so the phrase's words count too:
-                // a card for 脱水症状 or 途方に暮れる also tells us about 脱水, 症状, 途方, 暮れる.
+                // Stored in the form the reader matches (気になります → 気になる; reader::phrase_form).
+                let words: Vec<_> =
+                    tokens.iter().filter(|t| !matches!(t.kind, TokenKind::Space | TokenKind::Symbol)).cloned().collect();
+                let (lemma, form_reading) = phrase_form(&words).unwrap_or_else(|| (cand.text.clone(), String::new()));
+                let reading = hint.unwrap_or_else(|| {
+                    if form_reading.is_empty() { many.iter().map(|t| t.lemma_reading.as_str()).collect() } else { form_reading }
+                });
+                keys.push((WordKey { lang: tok.lang().into(), lemma, reading }, cand.text.clone()));
+                // The phrase's words count too: a card for 脱水症状 or 途方に暮れる also tells us
+                // about 脱水, 症状, 途方, 暮れる.
                 for t in many {
                     keys.push((
                         WordKey { lang: tok.lang().into(), lemma: t.lemma.clone(), reading: t.lemma_reading.clone() },

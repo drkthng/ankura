@@ -282,6 +282,72 @@ pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &Ge
     save(store, &prep, &draft, &c, attempts)
 }
 
+// --- "Simplify this sentence" (ROADMAP M2) ---
+
+const SIMPLIFY_SYSTEM: &str = "You help an adult learner read Japanese. Rewrite the sentence they found hard in \
+simpler Japanese with the same meaning, using words from their known-word list and basic grammar. Keep it natural; \
+you may split it into two short sentences. Keep names as they are. Also give a natural English translation of the \
+original sentence.";
+
+fn simplify_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {"simple": {"type": "string"}, "translation": {"type": "string"}},
+        "required": ["simple", "translation"],
+        "additionalProperties": false
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Simplified {
+    /// The sentence in simpler Japanese, as the reader shows it.
+    pub tokens: Vec<crate::reader::ReaderToken>,
+    pub simple: String,
+    /// English translation of the original sentence.
+    pub translation: String,
+    /// Share of words in the simple version the learner knows, 0-1.
+    pub coverage: f64,
+}
+
+/// Rewrites a sentence with known words; asks once more if the first try isn't familiar enough.
+pub fn simplify_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, sentence: &str) -> Result<Simplified> {
+    let sentence = sentence.trim();
+    if sentence.is_empty() {
+        return Err(Error::Llm("no sentence to simplify".into()));
+    }
+    let known = store.known_lemmas(tok.lang(), KNOWN_SAMPLE)?;
+    let base = format!("Sentence: {sentence}\n\nKnown words (the learner knows these well):\n{}\n", known.join("、"));
+    let mut prompt = base.clone();
+    let mut best: Option<(String, String, Check)> = None;
+    for _ in 0..2 {
+        #[derive(Deserialize)]
+        struct Answer {
+            simple: String,
+            translation: String,
+        }
+        let a: Answer = serde_json::from_value(llm.json(SIMPLIFY_SYSTEM, &prompt, &simplify_schema())?)
+            .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
+        let c = check(store, tok, &a.simple, &[])?;
+        let good = c.coverage >= TARGET_COVERAGE;
+        if !good {
+            prompt = format!(
+                "{base}\nYour previous version: {}\nThe learner doesn't know these words in it: {}. Simplify it further.",
+                a.simple,
+                c.unknown.join("、")
+            );
+        }
+        if best.as_ref().is_none_or(|(_, _, b)| c.coverage > b.coverage) {
+            best = Some((a.simple.trim().to_string(), a.translation.trim().to_string(), c));
+        }
+        if good {
+            break;
+        }
+    }
+    let (simple, translation, c) = best.expect("at least one attempt");
+    let doc = analyze(store, tok, &simple)?;
+    Ok(Simplified { tokens: doc.paragraphs.into_iter().flatten().collect(), simple, translation, coverage: c.coverage })
+}
+
 // --- Copy & paste through claude.ai (ADR 0011) ---
 
 const ANSWER_FORMAT: &str = "Answer with only a JSON object in this shape, with nothing before or after it:
@@ -508,6 +574,27 @@ mod tests {
         let r = submit_answer(&s, t, &req, &weak, 3, true).unwrap();
         assert!(r.saved.is_some() && r.coverage < TARGET_COVERAGE);
         assert_eq!(s.list_texts().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn simplifies_with_known_words() {
+        let Some(t) = sudachi() else { return };
+        let s = store_with_known(&[("猫", "ねこ"), ("好き", "すき"), ("見る", "みる")]);
+        let llm = ScriptedLlm {
+            drafts: Mutex::new(vec![
+                json!({"simple": "猫を観察するのが好きだ。", "translation": "I like watching cats."}),
+                json!({"simple": "猫を見るのが好きだ。", "translation": "I like watching cats."}),
+            ]),
+            prompts: Mutex::new(vec![]),
+        };
+        let r = simplify_sentence(&s, t, &llm, "猫の生態を観察することを好む。").unwrap();
+        assert_eq!(r.simple, "猫を見るのが好きだ。");
+        assert_eq!(r.translation, "I like watching cats.");
+        assert!(r.coverage >= TARGET_COVERAGE, "{r:?}");
+        assert!(r.tokens.iter().any(|x| x.surface == "猫"));
+        let prompts = llm.prompts.lock().unwrap();
+        assert!(prompts[0].contains("Sentence: 猫の生態を観察することを好む。") && prompts[0].contains("好き"));
+        assert!(prompts[1].contains("観察"), "{}", prompts[1]);
     }
 
     #[test]

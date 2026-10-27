@@ -507,6 +507,16 @@ fn open_claude_ai() -> CmdResult<()> {
     cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't open the browser ({e}); go to {URL} yourself"))
 }
 
+#[tauri::command]
+async fn simplify_sentence(app: AppHandle, sentence: String) -> CmdResult<generate::Simplified> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let llm = s.llm()?;
+        generate::simplify_sentence(&s.own_store()?, tok.as_ref(), &llm, &sentence).map_err(err)
+    })
+    .await
+}
+
 // --- phrases and Anki cards (ADR 0012) ---
 
 #[tauri::command]
@@ -694,6 +704,7 @@ pub fn run() {
             chat_prompt,
             chat_submit,
             open_claude_ai,
+            simplify_sentence,
             phrase_info,
             card_options,
             card_field_names,

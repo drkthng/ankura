@@ -48,7 +48,8 @@ Known gaps after M1, to pick up next:
 - [x] Example sentences for target words.
 - [x] Copy & paste through claude.ai, no API key needed (ADR 0011).
 - [x] Show words in the spelling the user knows (card or text), not the normalized key.
-- [ ] "Simplify this sentence".
+- [x] "Simplify this sentence" (word pop-up: simpler version with known words, coverage-checked,
+      translation on request).
 
 ## M3: Personal and fun
 
@@ -59,6 +60,8 @@ Known gaps after M1, to pick up next:
 - [x] Anki cards from reading: card list, i+1 sentences, fields in the style of the user's notes,
       add-only (ADR 0007, ADR 0012).
 - [x] Select a phrase in the reader to look it up and card it as one unit (ADR 0012).
+- [x] Phrases from Anki cards and the user's marks show as one word in the reader (気になります
+      matches a 気になる card).
 - [ ] Kanji popover: other words in your deck with the same kanji.
 - [ ] Correctable furigana, card readings, counter sound changes (ADR 0008 consequences).
 

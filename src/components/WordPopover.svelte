@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, stateLabel, type ReaderToken, type WordInfo, type WordState } from "../lib/api";
+  import { api, stateLabel, type ReaderToken, type Simplified, type WordInfo, type WordState } from "../lib/api";
 
   let {
     token,
@@ -20,6 +20,25 @@
     sentence?: string;
     textId?: string | null;
   } = $props();
+
+  // --- "Simplify this sentence" ---
+  let simple = $state<Simplified | null>(null);
+  let simplifying = $state(false);
+  let simpleError = $state("");
+  let showTranslation = $state(false);
+  async function simplify() {
+    simplifying = true;
+    simpleError = "";
+    try {
+      simple = await api.simplifySentence(sentence);
+      requestAnimationFrame(place);
+    } catch (e) {
+      simpleError = String(e);
+    } finally {
+      simplifying = false;
+    }
+  }
+  const familiar = (t: ReaderToken) => ["known", "fading", "marked_known", "ignored"].includes(t.state);
 
   // --- Anki card ---
   let carding = $state<"" | "text" | "new">("");
@@ -109,6 +128,25 @@
     </p>
   {:else if !error}
     <p class="muted">Looking up…</p>
+  {/if}
+
+  {#if sentence}
+    <section class="simplify">
+      {#if simple}
+        <p class="simple">
+          {#each simple.tokens as t}{#each t.segments as g}{#if g.ruby && t.key && !familiar(t)}<ruby>{g.text}<rt>{g.ruby}</rt></ruby>{:else}{g.text}{/if}{/each}{/each}
+        </p>
+        <p class="muted small">
+          Simpler version · {Math.round(simple.coverage * 100)}% words you know ·
+          {#if showTranslation}{simple.translation}{:else}<button class="link" onclick={() => (showTranslation = true)}>Show translation</button>{/if}
+        </p>
+      {:else}
+        <button class="ghost" disabled={simplifying} onclick={simplify} title={sentence}>
+          {simplifying ? "Simplifying…" : "Simplify this sentence"}
+        </button>
+      {/if}
+      {#if simpleError}<p class="error small">{simpleError}</p>{/if}
+    </section>
   {/if}
 
   <section class="card-row">
@@ -227,6 +265,32 @@
   .small {
     font-size: 0.82rem;
     margin: 0;
+  }
+  .simplify {
+    border-top: 1px solid var(--line);
+    padding-top: 0.5rem;
+  }
+  .simplify > button {
+    font-size: 0.85rem;
+    padding: 0.2em 0.6em;
+  }
+  .simple {
+    font-family: var(--font-read);
+    font-size: 1.15rem;
+    line-height: 2;
+    margin: 0 0 0.2rem;
+  }
+  .simple rt {
+    font-size: 0.5em;
+    color: var(--muted);
+  }
+  .link {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: inherit;
   }
   .card-row {
     display: flex;

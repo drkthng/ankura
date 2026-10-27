@@ -182,7 +182,18 @@
       return;
     }
     const kid = keyId(k);
-    for (const p of doc.paragraphs) for (const t of p) if (t.key && keyId(t.key) === kid) Object.assign(t, { state, source: "mark" });
+    let found = false;
+    for (const p of doc.paragraphs)
+      for (const t of p)
+        if (t.key && keyId(t.key) === kid) {
+          Object.assign(t, { state, source: "mark" });
+          found = true;
+        }
+    // A selected phrase isn't a token yet: reload, so it shows as one word.
+    if (!found) {
+      doc = (await api.openText(id)).doc;
+      return;
+    }
     doc.coverage = coverageOf(doc);
   }
 

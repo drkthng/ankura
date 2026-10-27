@@ -322,6 +322,12 @@ def main():
         d.click("//nav//button[normalize-space()='Library']")
         d.click("//button[contains(@class,'open')][contains(., '駅の朝')]")
         d.click("//span[contains(@class,'tok') and normalize-space(.)='傘' or contains(@class,'tok') and starts-with(normalize-space(.), '傘')]")
+        d.click("//div[@role='dialog']//button[normalize-space()='Simplify this sentence']")
+        simple = d.text("//div[@role='dialog']//p[contains(@class,'simple')]", timeout=60)
+        d.click("//div[@role='dialog']//button[normalize-space()='Show translation']")
+        print("simplified:", simple, "/", d.text("//div[@role='dialog']//section[contains(@class,'simplify')]/p[2]"))
+        assert "雨" in simple, simple
+        d.shot(out / "12b-simplified.png")
         d.click("//div[@role='dialog']//button[normalize-space()='with this sentence']")
         msg = d.text("//div[@role='dialog']//span[contains(@class,'card-msg')]")
         assert "card list" in msg, msg
@@ -345,7 +351,10 @@ def main():
         d.click("//div[@role='dialog']//button[normalize-space()='with a new sentence']")
         msg = d.text("//div[@role='dialog']//span[contains(@class,'card-msg')]", timeout=60)
         assert "card list" in msg, msg
-        d.js("document.querySelector('.backdrop').click()")
+        # Marking the phrase known makes the reader show it as one word.
+        d.click("//div[@role='dialog']//button[normalize-space()='I know this']")
+        merged = "//span[contains(@class,'tok') and contains(@class,'st-marked_known') and contains(., '気分') and contains(., 'かった')]"
+        print("merged phrase:", d.text(merged))
 
         d.click("//nav//button[normalize-space()='Cards']")
         d.find("//section[contains(@class,'draft')][2]//textarea", timeout=60)  # both filled in
