@@ -20,8 +20,8 @@ notes.
   word in a sentence card. It reads your cards' intervals (or FSRS memory) and knows which words
   are solid and which are fading. Your cards are never changed. → [Connecting Anki](docs/guide/anki.md)
 - **Texts written for you.** Pick a few words to practise. Ankura asks the AI for a short story
-  that uses them, checks that at least 95% of its words are ones you know, and asks for a rewrite
-  if not. → [Write for me](docs/guide/write-for-me.md)
+  that uses them, about topics you like, checks that at least 95% of its words are ones you know,
+  and asks for a rewrite if not. → [Write for me](docs/guide/write-for-me.md)
 - **Help with a hard sentence.** "Simplify this sentence" rewrites it with words you know; the
   translation is there when you want it. Select several words to look up a whole phrase
   (気になります → 気になる). → [Reading](docs/guide/reading.md#help-with-a-sentence)
@@ -63,7 +63,7 @@ has the details.
 ## Status
 
 Ankura is young and used daily by its first user. Japanese on desktop (Windows, macOS, Linux)
-comes first. Next on the [roadmap](docs/ROADMAP.md): an interest profile and a proficiency test. Android, sync between devices,
+comes first. Next on the [roadmap](docs/ROADMAP.md): a proficiency test. Android, sync between devices,
 Italian and Spanish come later. Design decisions are recorded in [`docs/adr`](docs/adr).
 
 ## Building from source

@@ -246,8 +246,11 @@ def main():
         before = d.text("//div[contains(@class,'headline')]/strong")
         d.click("//span[contains(@class,'tok') and contains(@class,'st-unknown') and contains(., '毎朝')]")
         d.click("//div[@role='dialog']//button[normalize-space()='I know this']")
-        time.sleep(0.5)
-        after = d.text("//div[contains(@class,'headline')]/strong")
+        for _ in range(25):  # the mark is saved, then the colours and the score update
+            after = d.text("//div[contains(@class,'headline')]/strong")
+            if after != before:
+                break
+            time.sleep(0.2)
         print("coverage before/after marking 毎朝:", before, after)
         assert after != before
         d.shot(out / "06-after-mark.png")
@@ -335,6 +338,16 @@ def main():
         time.sleep(0.5)
         d.shot(out / "12-chat-saved.png")
         assert len(d.invoke("list_texts")) == 3
+
+        # Interests: suggested from reading, saved, then offered as ideas and picked for texts.
+        d.click("//nav//button[normalize-space()='Write for me']")
+        d.click("//button[normalize-space()='Tell Ankura what you like']")
+        d.click("//button[normalize-space()='Suggest from my reading']")
+        d.click("//button[contains(@class,'chip') and normalize-space()='+ Railway travel']", timeout=60)
+        d.click("//button[normalize-space()='Save interests']")
+        d.find("//div[contains(@class,'ideas')]//button[normalize-space()='Railway travel']")
+        assert d.invoke("pick_topic") == "Railway travel"
+        print("interests: ok")
 
         # Anki cards (ADR 0012): choose where they go, card a word and a selected phrase, add both.
         d.click("//nav//button[normalize-space()='Settings']")

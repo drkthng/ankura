@@ -54,6 +54,8 @@ class Handler(BaseHTTPRequestHandler):
         props = list(body["output_config"]["format"]["schema"]["properties"])
         if props == ["sentence"]:
             answer = card_sentence(prompt)
+        elif props == ["topics"]:
+            answer = {"topics": ["Railway travel", "Morning routines"]}
         elif props == ["kanji"]:
             # Primitive analysis: every story uses 口, under alternating names (a clash to resolve).
             kanji = re.findall(r"^(\S) \| ", prompt, re.M)

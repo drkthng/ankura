@@ -4,7 +4,7 @@
 
 These features use an AI model:
 
-- [Write for me](write-for-me.md) texts;
+- [Write for me](write-for-me.md) texts and interest suggestions;
 - *Simplify this sentence* ([Reading](reading.md#help-with-a-sentence));
 - new sentences and filled-in fields for [cards](cards.md);
 - new kanji mnemonics and consistent primitive names ([Kanji](kanji.md)).
@@ -37,9 +37,11 @@ fill cards by hand.
 
 Only when you use an AI feature, and only to the provider you chose:
 
-- **Texts:** your practice words, topic, length, style, up to 400 of your best-known words, and a
-  few fading ones. A rewrite request also contains the previous version and the words it should
+- **Texts:** your practice words, topic, length, style, topics to avoid, up to 400 of your
+  best-known words, and a few fading ones. A rewrite request also contains the previous version and the words it should
   avoid.
+- **Interest suggestions:** the titles and first lines of your 30 most recent pasted texts, the
+  topics you asked texts to be about, and your current interests.
 - **Simplify:** the sentence and up to 400 known words.
 - **New card sentence:** the word and up to 400 known words.
 - **New kanji mnemonic:** the kanji, its keyword and current story, and up to six of your other

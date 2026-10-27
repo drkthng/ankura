@@ -241,6 +241,11 @@ export interface StoryRewrite {
   new: string;
 }
 
+export interface Interests {
+  topics: { name: string; weight: number }[];
+  avoid: string[];
+}
+
 export interface Friction {
   key: WordKey;
   display: string;
@@ -369,6 +374,10 @@ export const api = {
   primitivesCandidates: () => invoke<StoryCandidate[]>("primitives_candidates"),
   primitivesRewrite: (kanji: string[]) => invoke<StoryRewrite[]>("primitives_rewrite", { kanji }),
   primitivesSave: (kanji: string, story: string) => invoke<number>("primitives_save", { kanji, story }),
+  getInterests: () => invoke<Interests>("get_interests"),
+  setInterests: (value: Interests) => invoke<void>("set_interests", { value }),
+  pickTopic: () => invoke<string | null>("pick_topic"),
+  suggestInterests: () => invoke<string[]>("suggest_interests"),
   recordReading: (chars: number) => invoke<void>("record_reading", { day: localDay(), chars }),
   readingStats: () => invoke<Stats>("reading_stats", { today: localDay() }),
   simplifySentence: (sentence: string) => invoke<Simplified>("simplify_sentence", { sentence }),

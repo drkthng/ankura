@@ -147,7 +147,7 @@ pub(crate) fn check(store: &Store, tok: &dyn Tokenizer, text: &str, targets: &[(
     Ok(Check { coverage, missing, unknown: unknown.into_iter().collect() })
 }
 
-fn user_prompt(req: &GenerateRequest, known: &[String], fading: &[String]) -> String {
+fn user_prompt(req: &GenerateRequest, known: &[String], fading: &[String], avoid: &[String]) -> String {
     let mut p = String::new();
     p.push_str(&format!("Target words: {}\n", req.targets.join("、")));
     p.push_str(&format!(
@@ -156,6 +156,9 @@ fn user_prompt(req: &GenerateRequest, known: &[String], fading: &[String]) -> St
     ));
     p.push_str(&format!("Length: about {} Japanese characters.\n", req.length));
     p.push_str(if req.polite { "Style: です/ます.\n" } else { "Style: plain form (だ/である).\n" });
+    if !avoid.is_empty() {
+        p.push_str(&format!("Topics the learner doesn't want: {}.\n", avoid.join(", ")));
+    }
     if !fading.is_empty() {
         p.push_str(&format!(
             "Words the learner is starting to forget; use a few of them if they fit naturally: {}\n",
@@ -205,7 +208,8 @@ pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Res
         .map(|w| w.key.lemma)
         .collect();
     let req = GenerateRequest { targets, ..req.clone() };
-    let prompt = user_prompt(&req, &known, &fading);
+    let avoid = crate::interests::get(store)?.avoid;
+    let prompt = user_prompt(&req, &known, &fading, &avoid);
     Ok(Prepared { req, target_lemmas, prompt, lang })
 }
 

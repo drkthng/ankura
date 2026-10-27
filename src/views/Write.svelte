@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type AiMode, type AiSettings, type ChatOutcome, type GenerateRequest, type StudyWord } from "../lib/api";
+  import { api, type AiMode, type AiSettings, type ChatOutcome, type GenerateRequest, type Interests, type StudyWord } from "../lib/api";
 
   let { onopen, ongo }: { onopen: (id: string) => void; ongo: (view: "settings" | "cards") => void } = $props();
 
@@ -18,11 +18,63 @@
 
   onMount(async () => {
     try {
-      [ai, words] = await Promise.all([api.aiSettings(), api.studyWords()]);
+      [ai, words, interests] = await Promise.all([api.aiSettings(), api.studyWords(), api.getInterests()]);
     } catch (e) {
       error = String(e);
     }
   });
+
+  // --- interest profile ---
+  /** Ideas when the learner hasn't named any interests. */
+  const IDEAS = ["a small mystery", "a day at the market", "cooking dinner", "a train journey", "a letter to a friend", "a ghost story", "news about a new invention"];
+  let interests = $state<Interests>({ topics: [], avoid: [] });
+  let editing = $state(false);
+  let newTopic = $state("");
+  let avoidText = $state("");
+  let suggestions = $state<string[]>([]);
+  let suggesting = $state(false);
+  let topicNote = $state("");
+  const ideas = $derived(
+    interests.topics.length ? [...interests.topics].sort((a, b) => b.weight - a.weight).map((t) => t.name) : IDEAS,
+  );
+  function startEditing() {
+    editing = !editing;
+    avoidText = interests.avoid.join(", ");
+  }
+  function addTopic(name: string) {
+    const n = name.trim();
+    if (n && !interests.topics.some((t) => t.name.toLowerCase() === n.toLowerCase())) {
+      interests = { ...interests, topics: [...interests.topics, { name: n, weight: 2 }] };
+    }
+    suggestions = suggestions.filter((x) => x !== name);
+  }
+  async function saveInterests() {
+    interests = { ...interests, avoid: avoidText.split(/[,、]/).map((x) => x.trim()).filter(Boolean) };
+    await api.setInterests(interests);
+    interests = await api.getInterests();
+    editing = false;
+  }
+  async function suggestTopics() {
+    suggesting = true;
+    error = "";
+    try {
+      suggestions = await api.suggestInterests();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      suggesting = false;
+    }
+  }
+  /** No topic given: one of the learner's, by weight, shown in the topic field. */
+  async function fillTopic() {
+    topicNote = "";
+    if (topic.trim()) return;
+    const t = await api.pickTopic().catch(() => null);
+    if (t) {
+      topic = t;
+      topicNote = "Picked from your interests.";
+    }
+  }
 
   const MAX = 8;
   const groups = $derived([
@@ -44,7 +96,6 @@
     typed = "";
   }
 
-  const IDEAS = ["a small mystery", "a day at the market", "cooking dinner", "a train journey", "a letter to a friend", "a ghost story", "news about a new invention"];
 
   async function setMode(mode: AiMode) {
     if (!ai || ai.mode === mode) return;
@@ -74,6 +125,7 @@
   }
 
   async function startChat() {
+    await fillTopic();
     const request = { targets: picked, topic, length, polite };
     const prompt = await api.chatPrompt(request);
     chat = { request, prompt, attempts: 0, answer: "", last: "", outcome: null };
@@ -141,6 +193,7 @@
     }
     busy = true;
     error = "";
+    await fillTopic();
     started = Date.now();
     const tick = setInterval(() => (elapsed = Math.round((Date.now() - started) / 1000)), 1000);
     try {
@@ -219,8 +272,37 @@
     <h2>2. What about?</h2>
     <input class="topic" placeholder="Any topic, e.g. a detective story set in Osaka (optional)" bind:value={topic} />
     <div class="chips ideas">
-      {#each IDEAS as idea}<button class="chip" onclick={() => (topic = idea)}>{idea}</button>{/each}
+      {#each ideas as idea}<button class="chip" onclick={() => { topic = idea; topicNote = ""; }}>{idea}</button>{/each}
+      <button class="link" onclick={startEditing}>{editing ? "Close" : interests.topics.length ? "Edit your interests" : "Tell Ankura what you like"}</button>
     </div>
+    {#if topicNote}<p class="muted small">{topicNote}</p>{/if}
+    {#if editing}
+      <div class="interests">
+        <p class="muted small">
+          Topics you like. With no topic above, Ankura picks one of these for each text, “more” ones more often.
+        </p>
+        {#each interests.topics as t, i (t.name)}
+          <div class="row topic-row">
+            <span class="tname">{t.name}</span>
+            <select bind:value={interests.topics[i].weight} aria-label="How often">
+              <option value={1}>less</option>
+              <option value={2}>normal</option>
+              <option value={3}>more</option>
+            </select>
+            <button class="ghost danger" onclick={() => (interests = { ...interests, topics: interests.topics.filter((x) => x !== t) })}>×</button>
+          </div>
+        {/each}
+        <div class="row">
+          <input placeholder="Add a topic, e.g. Japanese history" bind:value={newTopic} onkeydown={(e) => { if (e.key === "Enter") { addTopic(newTopic); newTopic = ""; } }} />
+          <button class="ghost" disabled={suggesting} onclick={suggestTopics}>{suggesting ? "Thinking…" : "Suggest from my reading"}</button>
+        </div>
+        {#if suggestions.length}
+          <div class="chips">{#each suggestions as sug}<button class="chip" onclick={() => addTopic(sug)}>+ {sug}</button>{/each}</div>
+        {/if}
+        <label class="avoid">Never write about <input placeholder="e.g. horror, politics" bind:value={avoidText} /></label>
+        <div class="row"><button class="primary" onclick={saveInterests}>Save interests</button></div>
+      </div>
+    {/if}
     <div class="row opts">
       <label>Length
         <select bind:value={length}>
@@ -388,6 +470,34 @@
   .ideas .chip {
     font-family: var(--font-ui);
     font-size: 0.85rem;
+  }
+  .link {
+    border: none;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .interests {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    margin-top: 0.6rem;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .topic-row .tname {
+    flex: 1;
+  }
+  .avoid {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .avoid input {
+    flex: 1;
   }
   .topic {
     width: 100%;

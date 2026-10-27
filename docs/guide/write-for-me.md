@@ -29,6 +29,18 @@ If the text falls short, Ankura tells the AI which words you don't know and asks
 to three tries, and keeps the best one. The text opens in the reader, with example sentences for
 your words underneath and a button to make [Anki cards](cards.md) for them.
 
+## Your interests
+
+Under the topic, **Tell Ankura what you like** (or *Edit your interests*) opens your interest
+profile:
+
+- **Topics you like**, each read about less, normally or more often. They replace the standard
+  topic ideas. When you leave the topic empty, Ankura picks one of them for the text, the "more"
+  ones more often, and shows which.
+- **Suggest from my reading:** the AI looks at the texts you pasted and the topics you asked for,
+  and suggests topics; click one to add it.
+- **Never write about:** topics the AI should avoid in every text.
+
 ## Just sentences: Make cards
 
 Want one sentence per word instead of a text? **Make cards** writes a new sentence for each

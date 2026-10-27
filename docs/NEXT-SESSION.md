@@ -53,6 +53,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `mapping.rs` | Field → word keys (light verbs, phrases + their words, reading plausibility, unmarked-sentence fallback, word picked by reading), preview, `suggest_mapping` (content-based), `sync_anki` (AnkiConnect, FSRS buckets via `prop:s`/`prop:r`, overdue buckets via `prop:due` without FSRS, per-note-type report, `Scope` excludes suspended) |
 | `kanji.rs` | Kanji note mappings (+ `suggest_mapping`), kanji table filled by sync, `card` (pop-up), `new_story` (RTK mnemonic), `save_story` / `undo_story` (mnemonic field only, `kanji_edits` backup, tag `ankura-edited`) |
 | `primitives.rs` | Consistent primitive names: `analyse` (batches of 40, progress, stop, resumable; `kanji_primitives`, `kanji_analysed`), `list` (clashes first), `approve` (`primitive_names`, also used by `kanji::new_story`), `candidates`, `rewrite`, `save_rewrite` |
+| `interests.rs` | Interest profile (setting `interests`: weighted topics, avoid list), `pick` (by weight), `suggest` (AI, from pasted texts and asked-for topics) |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -133,7 +134,7 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    still guessed (the user can correct them per text or everywhere; `reading_fixes`, schema v9); Sudachi splits some words oddly
    (一時的 → 一|時|的).
 5. **M3** (ROADMAP, owner's order 2026-10-27): stats ✓, kanji ✓ (ADR 0013, all points);
-   furigana ✓ (counters by rule, user corrections); next interest profile, then
+   furigana ✓ (counters by rule, user corrections), interests ✓; next
    the proficiency test (research: `docs/research/proficiency-tests.md`; open question: which
    frequency list, licence).
 6. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,

@@ -68,8 +68,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
       approve names, rewrite stories with review.
 - [x] Correctable furigana: counter sound changes by rule (三匹 さんびき), and reading corrections per
       text or everywhere from the pop-up (ADR 0008 consequences). Card readings: not yet.
-- [ ] Interest profile: inferred from pasted texts, editable (weights, custom scenarios), steers
-      generation.
+- [x] Interest profile: weighted topics and topics to avoid, suggested from what the user reads,
+      editable on the Write page; steers topic ideas, picks the topic when none is given, and
+      the avoid list goes into every text prompt.
 - [ ] Proficiency test: a general test, and tests modelled on official exams (JLPT; CILS/CELI or
       DELE/SIELE later); listening last. Research in `docs/research/proficiency-tests.md`.
 

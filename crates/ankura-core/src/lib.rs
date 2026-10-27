@@ -7,6 +7,7 @@ pub mod counters;
 pub mod dict;
 pub mod furigana;
 pub mod generate;
+pub mod interests;
 pub mod kanji;
 pub mod kana;
 pub mod knowledge;

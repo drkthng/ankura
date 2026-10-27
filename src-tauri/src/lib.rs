@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::{kanji, primitives};
+use ankura_core::{interests, kanji, primitives};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -646,6 +646,33 @@ async fn primitives_save(app: AppHandle, kanji: String, story: String) -> CmdRes
     .await
 }
 
+// --- interest profile (ROADMAP M3) ---
+
+#[tauri::command]
+async fn get_interests(app: AppHandle) -> CmdResult<interests::Interests> {
+    blocking(app, |s| interests::get(&s.store()).map_err(err)).await
+}
+
+#[tauri::command]
+async fn set_interests(app: AppHandle, value: interests::Interests) -> CmdResult<()> {
+    blocking(app, move |s| interests::set(&s.store(), &value).map_err(err)).await
+}
+
+/// One of the learner's topics, picked by weight, for a text without a topic.
+#[tauri::command]
+async fn pick_topic(app: AppHandle) -> CmdResult<Option<String>> {
+    blocking(app, |s| Ok(interests::pick(&interests::get(&s.store()).map_err(err)?, interests::roll()))).await
+}
+
+#[tauri::command]
+async fn suggest_interests(app: AppHandle) -> CmdResult<Vec<String>> {
+    blocking(app, |s| {
+        let llm = s.llm()?;
+        interests::suggest(&s.own_store()?, &llm).map_err(err)
+    })
+    .await
+}
+
 // --- stats (ROADMAP M3) ---
 
 /// Characters read in a paragraph that counted as read; `day` is the user's local date.
@@ -864,6 +891,10 @@ pub fn run() {
             open_claude_ai,
             simplify_sentence,
             record_reading,
+            get_interests,
+            set_interests,
+            pick_topic,
+            suggest_interests,
             kanji_mappings,
             kanji_suggest,
             save_kanji_mapping,
