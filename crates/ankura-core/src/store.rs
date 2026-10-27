@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -130,6 +130,19 @@ CREATE TABLE card_drafts (
     status TEXT NOT NULL,          -- 'draft' | 'added'
     note_id INTEGER,               -- the Anki note, once added
     created_at INTEGER NOT NULL
+);
+"#;
+
+/// Readings the user corrected (ROADMAP M3); added in version 9. `text_id` '' means everywhere.
+const READING_FIXES_SCHEMA: &str = r#"
+CREATE TABLE reading_fixes (
+    lang TEXT NOT NULL,
+    surface TEXT NOT NULL,
+    text_id TEXT NOT NULL,
+    reading TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (lang, surface, text_id)
 );
 "#;
 
@@ -258,6 +271,7 @@ impl Store {
             conn.execute_batch(READING_SCHEMA)?;
             conn.execute_batch(crate::kanji::KANJI_SCHEMA)?;
             conn.execute_batch(crate::primitives::PRIMITIVES_SCHEMA)?;
+            conn.execute_batch(READING_FIXES_SCHEMA)?;
         }
         if version == 1 {
             conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
@@ -279,6 +293,9 @@ impl Store {
         }
         if (1..=7).contains(&version) {
             conn.execute_batch(crate::primitives::PRIMITIVES_SCHEMA)?;
+        }
+        if (1..=8).contains(&version) {
+            conn.execute_batch(READING_FIXES_SCHEMA)?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -661,6 +678,37 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Sets (or with `None` removes) the reading of a written form, everywhere or in one text.
+    pub fn set_reading_fix(&self, lang: &str, surface: &str, reading: Option<&str>, text_id: Option<&str>) -> Result<()> {
+        let tid = text_id.unwrap_or("");
+        match reading.map(str::trim).filter(|r| !r.is_empty()) {
+            Some(r) => self.conn.execute(
+                "INSERT INTO reading_fixes (lang, surface, text_id, reading, device_id, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT (lang, surface, text_id) DO UPDATE SET reading = excluded.reading, updated_at = excluded.updated_at",
+                params![lang, surface, tid, crate::kana::to_hiragana(r), self.device_id, now_ms()],
+            )?,
+            None => self.conn.execute(
+                "DELETE FROM reading_fixes WHERE lang = ?1 AND surface = ?2 AND text_id = ?3",
+                params![lang, surface, tid],
+            )?,
+        };
+        Ok(())
+    }
+
+    /// Fixed readings that apply in a text: the text's own over the ones for everywhere.
+    pub fn reading_fixes(&self, lang: &str, text_id: Option<&str>) -> Result<HashMap<String, String>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT surface, reading FROM reading_fixes WHERE lang = ?1 AND (text_id = '' OR text_id = ?2) ORDER BY text_id = ''",
+        )?;
+        let rows = st.query_map(params![lang, text_id.unwrap_or("")], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = HashMap::new();
+        for row in rows {
+            let (s, r) = row?;
+            out.entry(s).or_insert(r); // the text's own fix comes first
+        }
+        Ok(out)
     }
 
     /// Adds characters read on a (local) day.

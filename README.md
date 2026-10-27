@@ -14,7 +14,8 @@ notes.
 
 - **Read with your Anki knowledge.** Words you know stay plain. Words you're learning, new in
   Anki, or not in Anki at all are coloured, so you see at a glance how hard a text is. Furigana
-  appear only on words you don't know yet. → [Reading](docs/guide/reading.md)
+  appear only on words you don't know yet, and a wrong reading is fixed with two clicks.
+  → [Reading](docs/guide/reading.md)
 - **Works with any Anki collection.** Point Ankura at the field that holds the word, even the bold
   word in a sentence card. It reads your cards' intervals (or FSRS memory) and knows which words
   are solid and which are fading. Your cards are never changed. → [Connecting Anki](docs/guide/anki.md)
@@ -62,8 +63,7 @@ has the details.
 ## Status
 
 Ankura is young and used daily by its first user. Japanese on desktop (Windows, macOS, Linux)
-comes first. Next on the [roadmap](docs/ROADMAP.md): correctable furigana, an interest profile, and a
-proficiency test. Android, sync between devices,
+comes first. Next on the [roadmap](docs/ROADMAP.md): an interest profile and a proficiency test. Android, sync between devices,
 Italian and Spanish come later. Design decisions are recorded in [`docs/adr`](docs/adr).
 
 ## Building from source

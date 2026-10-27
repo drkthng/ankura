@@ -275,7 +275,7 @@ async fn open_text(app: AppHandle, id: String) -> CmdResult<OpenedText> {
         let tok = s.tokenizer()?;
         let store = s.store();
         let text = store.open_text(&id).map_err(err)?.ok_or("This text no longer exists.")?;
-        let doc = reader::analyze(&store, tok.as_ref(), &text.body).map_err(err)?;
+        let doc = reader::analyze_text(&store, tok.as_ref(), &text.body, Some(&id)).map_err(err)?;
         Ok(OpenedText { meta: text.meta, doc, extra: text.extra })
     })
     .await
@@ -308,6 +308,12 @@ async fn word_info(app: AppHandle, key: WordKey, surface: String) -> CmdResult<W
         })
     })
     .await
+}
+
+/// Corrects the reading of a written form, everywhere or (with `text_id`) in one text; `None` removes it.
+#[tauri::command]
+async fn set_reading_fix(app: AppHandle, surface: String, reading: Option<String>, text_id: Option<String>) -> CmdResult<()> {
+    blocking(app, move |s| s.store().set_reading_fix("ja", &surface, reading.as_deref(), text_id.as_deref()).map_err(err)).await
 }
 
 #[tauri::command]
@@ -840,6 +846,7 @@ pub fn run() {
             open_text,
             word_info,
             set_word_mark,
+            set_reading_fix,
             record_events,
             anki_check,
             anki_note_types,

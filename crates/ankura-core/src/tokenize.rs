@@ -156,6 +156,7 @@ impl Tokenizer for SudachiTokenizer {
                 parts,
             });
         }
+        crate::counters::fix_readings(&mut out);
         Ok(out)
     }
 }
@@ -223,3 +224,4 @@ mod tests {
         assert_eq!(parts, vec!["海外", "旅行"]);
     }
 }
+

@@ -186,7 +186,13 @@ fn state_of(store: &Store, key: &WordKey) -> Result<(WordState, &'static str)> {
 }
 
 pub fn analyze(store: &Store, tok: &dyn Tokenizer, text: &str) -> Result<ReaderDoc> {
+    analyze_text(store, tok, text, None)
+}
+
+/// `analyze`, with the reading fixes for this text (and the ones for everywhere).
+pub fn analyze_text(store: &Store, tok: &dyn Tokenizer, text: &str, text_id: Option<&str>) -> Result<ReaderDoc> {
     let lang = tok.lang();
+    let fixes = store.reading_fixes(lang, text_id)?;
     // Everything Ankura has a state for: a span is only looked up when its form is one of these.
     let phrase_lemmas: HashSet<String> = store.all_lemmas(lang)?;
     let mut paragraphs = Vec::new();
@@ -197,7 +203,17 @@ pub fn analyze(store: &Store, tok: &dyn Tokenizer, text: &str) -> Result<ReaderD
             continue;
         }
         let mut out = Vec::new();
-        let toks = tok.tokenize(line)?;
+        let mut toks = tok.tokenize(line)?;
+        // Readings the user corrected. For a word in its dictionary form the fix also says which
+        // word it is (人気 にんき → ひとけ), so its key, meaning and state follow.
+        for t in toks.iter_mut() {
+            if let Some(r) = fixes.get(&t.surface) {
+                if t.surface == t.dictionary_form {
+                    t.lemma_reading = r.clone();
+                }
+                t.reading = r.clone();
+            }
+        }
         let mut i = 0;
         while i < toks.len() {
             // A phrase from Anki or the user's marks shows as one word (気になります).
@@ -275,6 +291,25 @@ mod tests {
     use super::*;
     use crate::knowledge::{CardFacts, KnowledgeSettings};
     use crate::tokenize::test_support::sudachi;
+
+    #[test]
+    fn reading_fixes_apply_everywhere_or_in_one_text() {
+        let Some(t) = sudachi() else { return };
+        let s = Store::open_in_memory().unwrap();
+        let reading = |doc: &ReaderDoc, w: &str| {
+            let x = doc.paragraphs[0].iter().find(|x| x.surface == w).unwrap();
+            (x.segments.iter().filter_map(|g| g.ruby.clone()).collect::<String>(), x.key.as_ref().unwrap().reading.clone())
+        };
+        let text = "人気のない道。";
+        assert_eq!(reading(&analyze_text(&s, t, text, Some("a")).unwrap(), "人気"), ("にんき".into(), "にんき".into()));
+        s.set_reading_fix("ja", "人気", Some("ヒトケ"), Some("a")).unwrap();
+        assert_eq!(reading(&analyze_text(&s, t, text, Some("a")).unwrap(), "人気"), ("ひとけ".into(), "ひとけ".into()));
+        assert_eq!(reading(&analyze_text(&s, t, text, Some("b")).unwrap(), "人気").0, "にんき", "only in text a");
+        s.set_reading_fix("ja", "人気", Some("にんき"), None).unwrap();
+        assert_eq!(reading(&analyze_text(&s, t, text, Some("a")).unwrap(), "人気").0, "ひとけ", "the text's own fix wins");
+        s.set_reading_fix("ja", "人気", None, Some("a")).unwrap();
+        assert_eq!(reading(&analyze_text(&s, t, text, Some("a")).unwrap(), "人気").0, "にんき");
+    }
 
     #[test]
     fn known_phrases_show_as_one_word() {

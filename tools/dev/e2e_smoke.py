@@ -347,6 +347,26 @@ def main():
 
         d.click("//nav//button[normalize-space()='Library']")
         d.click("//button[contains(@class,'open')][contains(., '駅の朝')]")
+        # Correct a reading in this text (毎朝 まいあさ → まいちょう), then reset it.
+        ruby = "return [...document.querySelectorAll('.tok')].find(e => e.textContent.startsWith('毎朝'))?.querySelector('rt')?.textContent"
+        d.click("//span[contains(@class,'tok') and starts-with(normalize-space(.), '毎朝')]")
+        d.click("//div[@role='dialog']//button[contains(@class,'fix')]")
+        d.click("//div[@role='dialog']//section[contains(@class,'fixer')]//button[normalize-space()='まいちょう']")
+        d.click("//div[@role='dialog']//button[normalize-space()='Use this reading']")
+        for _ in range(20):
+            if d.js(ruby) == "まいちょう":
+                break
+            time.sleep(0.3)
+        assert d.js(ruby) == "まいちょう", d.js(ruby)
+        d.click("//span[contains(@class,'tok') and starts-with(normalize-space(.), '毎朝')]")
+        d.click("//div[@role='dialog']//button[contains(@class,'fix')]")
+        d.click("//div[@role='dialog']//button[normalize-space()='Reset']")
+        for _ in range(20):
+            if d.js(ruby) == "まいあさ":
+                break
+            time.sleep(0.3)
+        assert d.js(ruby) == "まいあさ", d.js(ruby)
+        print("reading fix: ok")
         d.click("//span[contains(@class,'tok') and normalize-space(.)='傘' or contains(@class,'tok') and starts-with(normalize-space(.), '傘')]")
         d.click("//div[@role='dialog']//button[normalize-space()='Simplify this sentence']")
         simple = d.text("//div[@role='dialog']//p[contains(@class,'simple')]", timeout=60)

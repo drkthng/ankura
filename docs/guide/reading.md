@@ -38,6 +38,19 @@ how often you've seen and looked it up. Then:
 - **Anki card:** puts the word on your card list, with this sentence or a new one. See
   [Cards](cards.md).
 
+## Wrong furigana?
+
+Ankura works out readings with a dictionary of how words are usually read, and corrects the
+sound changes of numbers with counters (三匹 さんびき, 一本 いっぽん, 六分 ろっぷん, 二日 ふつか). Some words
+are read differently depending on context (人気のない ひとけ, 十分 じっぷん when it means ten minutes,
+この方 かた or ほう), and Ankura can get those wrong.
+
+Click the word and the **✎** next to its reading. Pick one of the readings the dictionary lists,
+or type one, and choose whether it applies **in this text** or **everywhere**. For a word in its
+dictionary form the correction also changes which word Ankura takes it for (人気 read ひとけ is
+"sign of life", not "popularity"), so the meaning and your Anki state follow. **Reset** goes back
+to Ankura's reading.
+
 ## Phrases
 
 Drag across several words to look them up as one phrase. Ankura reduces it to its dictionary form

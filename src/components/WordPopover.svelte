@@ -11,6 +11,7 @@
     ondontknow,
     sentence = "",
     textId = null,
+    onreading = () => {},
   }: {
     token: ReaderToken;
     anchor: DOMRect;
@@ -20,7 +21,25 @@
     /** The sentence the word appears in, for a card. */
     sentence?: string;
     textId?: string | null;
+    /** A reading was corrected: the text needs reloading. */
+    onreading?: () => void;
   } = $props();
+
+  // --- correcting the reading ---
+  let fixing = $state(false);
+  let fixReading = $state("");
+  let fixScope = $state<"text" | "everywhere">("text");
+  let fixError = $state("");
+  const shownReading = $derived(token.segments.map((g) => g.ruby ?? g.text).join(""));
+  async function saveReading(reading: string | null) {
+    fixError = "";
+    try {
+      await api.setReadingFix(token.surface, reading, fixScope === "text" ? textId : null);
+      onreading();
+    } catch (e) {
+      fixError = String(e);
+    }
+  }
 
   // --- kanji (ADR 0013) ---
   const KANJI = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/u;
@@ -101,11 +120,41 @@
   <header>
     <div class="word">
       <span class="lemma">{token.dictionary_form}</span>
-      {#if key.reading && key.reading !== token.dictionary_form}<span class="reading">{key.reading}</span>{/if}
+      {#if key.reading && key.reading !== token.dictionary_form}
+        <span class="reading">
+          {key.reading}
+          {#if token.has_kanji}
+            <button class="fix" title="Wrong reading? Correct it" onclick={() => { fixing = !fixing; fixReading = shownReading; requestAnimationFrame(place); }}>✎</button>
+          {/if}
+        </span>
+      {/if}
       {#if key.lemma !== token.dictionary_form}<span class="also">also written {key.lemma}</span>{/if}
     </div>
     <span class="state st-{token.state}">{token.source === "parts" ? "Known parts" : token.source === "basic" ? "Basic word" : stateLabel[token.state]}</span>
   </header>
+
+  {#if fixing}
+    <section class="fixer">
+      <p class="muted small">Reading of <strong class="jp">{token.surface}</strong> here:</p>
+      {#if info?.readings.length}
+        <div class="chips">
+          {#each info.readings as r}<button class="chip" class:on={fixReading === r} onclick={() => (fixReading = r)}>{r}</button>{/each}
+        </div>
+      {/if}
+      <div class="row">
+        <input class="jp" bind:value={fixReading} aria-label="Reading in kana" />
+        <select bind:value={fixScope} aria-label="Where the reading applies">
+          <option value="text">in this text</option>
+          <option value="everywhere">everywhere</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="primary" disabled={!fixReading.trim()} onclick={() => saveReading(fixReading)}>Use this reading</button>
+        <button class="ghost" onclick={() => saveReading(null)} title="Back to the reading Ankura worked out">Reset</button>
+      </div>
+      {#if fixError}<p class="error small">{fixError}</p>{/if}
+    </section>
+  {/if}
 
   {#if error}<p class="error">{error}</p>{/if}
 
@@ -281,6 +330,43 @@
   .small {
     font-size: 0.82rem;
     margin: 0;
+  }
+  .fix {
+    border: none;
+    background: none;
+    padding: 0 0.2rem;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .fixer {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    display: grid;
+    gap: 0.4rem;
+  }
+  .fixer .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .fixer .chip {
+    font-family: var(--font-read);
+    padding: 0.1em 0.6em;
+    border-radius: 999px;
+    font-size: 0.95rem;
+  }
+  .fixer .chip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .fixer input {
+    width: 9rem;
+  }
+  .jp {
+    font-family: var(--font-read);
   }
   .kanji-row {
     display: flex;

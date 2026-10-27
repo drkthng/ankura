@@ -305,6 +305,10 @@
     ondontknow={dontKnow}
     sentence={selected.sentence}
     textId={id}
+    onreading={async () => {
+      selected = null;
+      doc = (await api.openText(id)).doc;
+    }}
   />
 {/if}
 

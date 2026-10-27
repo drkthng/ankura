@@ -47,6 +47,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | Path | What |
 |---|---|
 | `crates/ankura-core/src/tokenize.rs` | `Tokenizer` trait, Sudachi impl (mode C + mode A parts), token kinds, auxiliary-after-て rule, preferred readings (私→わたし) |
+| `counters.rs` | Number + counter readings (三匹 さんびき, 一本 いっぽん; 一日 いちにち vs ついたち), applied after tokenizing |
 | `furigana.rs`, `kana.rs` | Ruby segments over kanji only; kana helpers |
 | `normalize.rs` | Anki field cleaning (HTML, ruby, `漢字[かんじ]`, cloze, sound, lists, brackets); `marked_text` (bold/italic/underline) |
 | `mapping.rs` | Field → word keys (light verbs, phrases + their words, reading plausibility, unmarked-sentence fallback, word picked by reading), preview, `suggest_mapping` (content-based), `sync_anki` (AnkiConnect, FSRS buckets via `prop:s`/`prop:r`, overdue buckets via `prop:due` without FSRS, per-note-type report, `Scope` excludes suspended) |
@@ -128,11 +129,11 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 2. **JMdict download** (`downloads.rs`, GitHub release URL) has never been run; if it fails for the
    owner, the fallback is "Import a Yomitan dictionary…".
 3. **M2 is complete** ("Simplify this sentence" built 2026-10-27, fakes only).
-4. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方)
-   and counter sound changes (三匹) are wrong in furigana; Sudachi splits some words oddly
+4. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分, 人気のない, この方) are
+   still guessed (the user can correct them per text or everywhere; `reading_fixes`, schema v9); Sudachi splits some words oddly
    (一時的 → 一|時|的).
 5. **M3** (ROADMAP, owner's order 2026-10-27): stats ✓, kanji ✓ (ADR 0013, all points);
-   next correctable furigana, interest profile, then
+   furigana ✓ (counters by rule, user corrections); next interest profile, then
    the proficiency test (research: `docs/research/proficiency-tests.md`; open question: which
    frequency list, licence).
 6. **Later:** code signing for installers (Windows SmartScreen warns); Android (spikes S1/S2,

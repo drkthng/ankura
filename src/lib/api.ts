@@ -328,6 +328,8 @@ export const api = {
   deleteText: (id: string) => invoke<void>("delete_text", { id }),
   openText: (id: string) => invoke<{ meta: TextMeta; doc: ReaderDoc; extra: TextExtra | null }>("open_text", { id }),
   wordInfo: (key: WordKey, surface: string) => invoke<WordInfo>("word_info", { key, surface }),
+  setReadingFix: (surface: string, reading: string | null, textId: string | null) =>
+    invoke<void>("set_reading_fix", { surface, reading, textId }),
   setWordMark: (key: WordKey, state: WordState | null) => invoke<void>("set_word_mark", { key, state }),
   recordEvents: (events: NewEvent[]) => invoke<void>("record_events", { events }),
 

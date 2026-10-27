@@ -3,6 +3,7 @@
 
 pub mod anki;
 pub mod cards;
+pub mod counters;
 pub mod dict;
 pub mod furigana;
 pub mod generate;

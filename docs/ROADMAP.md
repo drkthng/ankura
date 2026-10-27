@@ -66,7 +66,8 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
       new RTK-style mnemonics; edits limited to the mnemonic field, confirmed, backed up, undoable.
 - [x] Kanji: consistent primitive names across the set (ADR 0013 point 5): analyse stories,
       approve names, rewrite stories with review.
-- [ ] Correctable furigana, card readings, counter sound changes (ADR 0008 consequences).
+- [x] Correctable furigana: counter sound changes by rule (三匹 さんびき), and reading corrections per
+      text or everywhere from the pop-up (ADR 0008 consequences). Card readings: not yet.
 - [ ] Interest profile: inferred from pasted texts, editable (weights, custom scenarios), steers
       generation.
 - [ ] Proficiency test: a general test, and tests modelled on official exams (JLPT; CILS/CELI or
