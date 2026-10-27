@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::{interests, kanji, primitives, proficiency};
+use ankura_core::{interests, kanji, practice, primitives, proficiency};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -28,6 +28,8 @@ pub struct AppState {
     store: Mutex<Store>,
     /// Set to stop a running primitive analysis after its current batch.
     stop_analysis: std::sync::atomic::AtomicBool,
+    /// Set to stop preparing a practice test after its current round.
+    stop_practice: std::sync::atomic::AtomicBool,
     tokenizer: RwLock<Option<Arc<SudachiTokenizer>>>,
     data_dir: PathBuf,
 }
@@ -731,6 +733,106 @@ async fn test_finish(app: AppHandle, test_id: String) -> CmdResult<proficiency::
     blocking(app, move |s| proficiency::finish(&s.store(), &test_id).map_err(err)).await
 }
 
+// --- practice tests (ADR 0015) ---
+
+#[derive(Serialize)]
+struct PracticeIntro {
+    suggested: u8,
+    credit: &'static str,
+    tests: Vec<practice::PastPractice>,
+    layouts: Vec<(u8, Vec<practice::PartSpec>)>,
+}
+
+#[tauri::command]
+async fn practice_intro(app: AppHandle) -> CmdResult<PracticeIntro> {
+    blocking(app, |s| {
+        let store = s.store();
+        Ok(PracticeIntro {
+            suggested: practice::suggested_level(&store).map_err(err)?,
+            credit: proficiency::CREDIT,
+            tests: practice::list(&store).map_err(err)?,
+            layouts: (1..=5).rev().map(|l| (l, practice::layout(l, false))).collect(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn practice_create(app: AppHandle, level: u8, half: bool, timed: bool) -> CmdResult<String> {
+    blocking(app, move |s| practice::create(&s.store(), level, half, timed).map_err(err)).await
+}
+
+/// Writes the test's questions; emits `practice-progress` {done, total} (question types).
+#[tauri::command]
+async fn practice_prepare(app: AppHandle, test_id: String) -> CmdResult<practice::Progress> {
+    let handle = app.clone();
+    blocking(app, move |s| {
+        use std::sync::atomic::Ordering;
+        s.stop_practice.store(false, Ordering::SeqCst);
+        let llm = s.llm()?;
+        // Without the tokenizer, the level-drift check is skipped.
+        let tok = s.tokenizer().ok();
+        let progress = |done: usize, total: usize| {
+            let _ = handle.emit("practice-progress", serde_json::json!({"done": done, "total": total}));
+        };
+        practice::prepare(
+            &s.own_store()?,
+            &llm,
+            tok.as_deref().map(|t| t as &dyn ankura_core::tokenize::Tokenizer),
+            &test_id,
+            progress,
+            || s.stop_practice.load(Ordering::SeqCst),
+        )
+        .map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+fn practice_stop(app: AppHandle) {
+    app.state::<AppState>().stop_practice.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[tauri::command]
+async fn practice_sheet(app: AppHandle, test_id: String) -> CmdResult<practice::Sheet> {
+    blocking(app, move |s| practice::sheet(&s.store(), &test_id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_answer(app: AppHandle, test_id: String, item_id: String, choice: Option<usize>) -> CmdResult<()> {
+    blocking(app, move |s| practice::answer(&s.store(), &test_id, &item_id, choice).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_time(app: AppHandle, test_id: String, part: usize, used_secs: u64, submitted: bool) -> CmdResult<()> {
+    blocking(app, move |s| practice::time(&s.store(), &test_id, part, used_secs, submitted).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_finish(app: AppHandle, test_id: String) -> CmdResult<practice::PracticeResult> {
+    blocking(app, move |s| practice::finish(&s.store(), &test_id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_review(app: AppHandle, test_id: String) -> CmdResult<Vec<practice::ReviewItem>> {
+    blocking(app, move |s| practice::review(&s.store(), &test_id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_report(app: AppHandle, test_id: String, item_id: String, reported: bool) -> CmdResult<practice::PracticeResult> {
+    blocking(app, move |s| practice::report(&s.store(), &test_id, &item_id, reported).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_retry(app: AppHandle, test_id: String) -> CmdResult<String> {
+    blocking(app, move |s| practice::retry(&s.store(), &test_id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn practice_delete(app: AppHandle, test_id: String) -> CmdResult<()> {
+    blocking(app, move |s| practice::delete(&s.store(), &test_id).map_err(err)).await
+}
+
 // --- stats (ROADMAP M3) ---
 
 /// Characters read in a paragraph that counted as read; `day` is the user's local date.
@@ -906,6 +1008,7 @@ pub fn run() {
             let state = AppState {
                 store: Mutex::new(store),
                 stop_analysis: std::sync::atomic::AtomicBool::new(false),
+                stop_practice: std::sync::atomic::AtomicBool::new(false),
                 tokenizer: RwLock::new(None),
                 data_dir,
             };
@@ -955,6 +1058,18 @@ pub fn run() {
             test_grammar,
             test_reading,
             test_finish,
+            practice_intro,
+            practice_create,
+            practice_prepare,
+            practice_stop,
+            practice_sheet,
+            practice_answer,
+            practice_time,
+            practice_finish,
+            practice_review,
+            practice_report,
+            practice_retry,
+            practice_delete,
             get_interests,
             set_interests,
             pick_topic,

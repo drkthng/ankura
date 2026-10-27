@@ -37,6 +37,9 @@ notes.
 - **Find your level.** A 15-20 minute level check in the style of the JLPT (words, kanji
   readings, grammar, reading) estimates your level, how sure it is, and the CEFR equivalent.
   → [Level check](docs/guide/level-check.md)
+- **Practise for the JLPT.** A mock exam for one level (N5-N1, full or half length): the JLPT's
+  question types, order and times without listening, a pass estimate, every answer explained,
+  cards for missed words and a retry round. → [Practice test](docs/guide/practice-test.md)
 - **See your progress.** Characters read per day, reading streaks, and "stealth leeches": words
   Anki says you know, but you keep looking up. → [Stats](docs/guide/stats.md)
 

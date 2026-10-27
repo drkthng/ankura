@@ -14,6 +14,7 @@ pub mod knowledge;
 pub mod llm;
 pub mod mapping;
 pub mod normalize;
+pub mod practice;
 pub mod primitives;
 pub mod proficiency;
 pub mod reader;

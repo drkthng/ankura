@@ -493,6 +493,59 @@ def main():
         assert "CEFR" in headline and {"vocab", "2. Kanji readings", "3. Grammar", "3. Grammar, part 2", "4. Reading"} <= seen, seen
         d.shot(out / "15b-level-check.png")
 
+        # Practice test (ADR 0015): a half N5 test, prepared by the fake AI; answer with the
+        # first option (some right, some wrong), hand in both parts, review, retry the missed.
+        d.click("//nav//button[normalize-space()='Practice test']")
+        d.click("//button[normalize-space()='N5']")
+        d.click("//button[starts-with(normalize-space(), 'Half')]")
+        d.click("//button[normalize-space()='Prepare the test']")
+        d.find("//nav[contains(@class,'grid')]", timeout=120)
+        d.shot(out / "15c-practice-question.png")
+        parts = []
+        for _ in range(600):
+            state = d.js(
+                "if (document.querySelector('.headline')) return 'done';"
+                "const yes = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Hand in anyway');"
+                "if (yes) { yes.click(); return 'confirm'; }"
+                "const open = document.querySelector('.qn:not(.done)');"
+                "if (open) { open.click(); return 'pick'; }"
+                "const hand = [...document.querySelectorAll('header.bar button.primary')].find(b => b.textContent.startsWith('Hand in'));"
+                "if (hand) { const p = document.querySelector('header.bar strong')?.textContent; hand.click(); return 'hand:' + p; }"
+                "return 'wait';"
+            )
+            if state == "pick":
+                time.sleep(0.05)
+                d.js("document.querySelector('.options button')?.click()")
+            elif state.startswith("hand:"):
+                parts.append(state[5:])
+            if state == "done":
+                break
+            time.sleep(0.1)
+        print("practice parts handed in:", parts)
+        assert len(parts) == 2, parts
+        verdict = d.text("//p[contains(@class,'headline')]")
+        sections = d.js("return [...document.querySelectorAll('.sec strong')].map(e => e.textContent)")
+        print("practice result:", verdict, sections)
+        assert verdict in ("Likely pass", "Borderline", "Not yet") and len(sections) == 1 and sections[0].endswith("/120"), (verdict, sections)
+        d.shot(out / "15d-practice-result.png")
+        d.click("//button[normalize-space()='Review answers']")
+        d.find("//section[contains(@class,'rev')]")
+        d.shot(out / "15e-practice-review.png")
+        d.click("(//section[contains(@class,'rev')])[1]//button[normalize-space()='Report a bad question']")
+        d.find("(//section[contains(@class,'rev')])[1]//button[normalize-space()='Reported · undo']")
+        card = d.js("const b = [...document.querySelectorAll('section.rev button')].find(b => b.textContent.startsWith('Anki card for')); if (b) { b.click(); return b.textContent; } return null;")
+        if card:
+            d.find("//button[normalize-space()='Card drafted ✓']", timeout=60)
+        print("practice card:", card)
+        d.click("//button[normalize-space()='← Results']")
+        d.click("//button[starts-with(normalize-space(), 'Retry the')]")
+        d.find("//header[contains(@class,'bar')]//strong[normalize-space()='Missed questions']")
+        tests = d.invoke("practice_intro")["tests"]
+        print("practice tests:", [(t["kind"], t["items"], t["answered"]) for t in tests])
+        assert [t["kind"] for t in tests] == ["retry", "practice"], tests
+        d.click("//button[normalize-space()='Pause']")
+        d.find("//button[normalize-space()='Continue']")
+
         # Stats: characters read (logged as paragraphs counted as read) and the streak.
         d.click("//nav//button[normalize-space()='Stats']")
         today = d.text("//div[contains(@class,'tile')][.//span[normalize-space()='Read today']]")

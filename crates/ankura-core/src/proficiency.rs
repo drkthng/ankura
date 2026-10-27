@@ -19,13 +19,13 @@ use crate::{Error, Result};
 
 // --- bundled lists: level 5 = N5 … 1 = N1 ---
 
-pub struct ListWord {
+pub(crate) struct ListWord {
     pub expression: String,
     pub reading: String,
     pub level: u8,
 }
 
-static VOCAB: LazyLock<Vec<ListWord>> = LazyLock::new(|| {
+pub(crate) static VOCAB: LazyLock<Vec<ListWord>> = LazyLock::new(|| {
     include_str!("../data/jlpt_vocab.tsv")
         .lines()
         .filter(|l| !l.starts_with('#'))
@@ -60,13 +60,13 @@ fn rank(level: u8) -> u8 {
 }
 
 /// A small random-number generator (xorshift), seeded per test.
-struct Rng(u64);
+pub(crate) struct Rng(pub(crate) u64);
 impl Rng {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Rng((Uuid::new_v4().as_u128() as u64) | 1)
     }
     #[cfg(test)]
-    fn seeded(s: u64) -> Self {
+    pub(crate) fn seeded(s: u64) -> Self {
         Rng(s | 1)
     }
     fn next(&mut self) -> u64 {
@@ -75,10 +75,10 @@ impl Rng {
         self.0 ^= self.0 << 17;
         self.0
     }
-    fn below(&mut self, n: usize) -> usize {
+    pub(crate) fn below(&mut self, n: usize) -> usize {
         (self.next() % n as u64) as usize
     }
-    fn shuffle<T>(&mut self, v: &mut [T]) {
+    pub(crate) fn shuffle<T>(&mut self, v: &mut [T]) {
         for i in (1..v.len()).rev() {
             v.swap(i, self.below(i + 1));
         }
@@ -146,7 +146,7 @@ fn item(section: Section, level: u8, prompt: String, options: Vec<String>, answe
 }
 
 /// What the learner knows according to Anki and their marks (spellings), to skip in the test.
-fn known_spellings(store: &Store) -> Result<HashSet<String>> {
+pub(crate) fn known_spellings(store: &Store) -> Result<HashSet<String>> {
     let mut st = store.conn.prepare(
         "SELECT lemma FROM knowledge WHERE lang = 'ja' AND state IN ('known', 'fading')
          UNION SELECT display FROM knowledge WHERE lang = 'ja' AND state IN ('known', 'fading') AND display IS NOT NULL
@@ -228,7 +228,7 @@ fn vocab_items(store: &Store, rng: &mut Rng) -> Result<Vec<Item>> {
 }
 
 /// Plausible wrong readings: voicing, long vowels, small っ.
-fn distractors(reading: &str) -> Vec<String> {
+pub(crate) fn distractors(reading: &str) -> Vec<String> {
     const VOICE: &[(char, char)] = &[
         ('か', 'が'), ('き', 'ぎ'), ('く', 'ぐ'), ('け', 'げ'), ('こ', 'ご'), ('さ', 'ざ'), ('し', 'じ'), ('す', 'ず'), ('せ', 'ぜ'),
         ('そ', 'ぞ'), ('た', 'だ'), ('ち', 'ぢ'), ('つ', 'づ'), ('て', 'で'), ('と', 'ど'), ('は', 'ば'), ('ひ', 'び'), ('ふ', 'ぶ'),
@@ -324,7 +324,7 @@ knowledge. Exactly one option is right.";
 const SOLVE_SYSTEM: &str = "You check Japanese test questions. Answer each question. If more than one option could be \
 right, or none is, mark it ambiguous.";
 
-fn mc_schema() -> Value {
+pub(crate) fn mc_schema() -> Value {
     json!({
         "type": "object",
         "properties": {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}, "answer": {"type": "integer"}},
@@ -334,10 +334,10 @@ fn mc_schema() -> Value {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct Mc {
-    question: String,
-    options: Vec<String>,
-    answer: usize,
+pub(crate) struct Mc {
+    pub(crate) question: String,
+    pub(crate) options: Vec<String>,
+    pub(crate) answer: usize,
 }
 
 fn solve_schema() -> Value {
@@ -360,7 +360,7 @@ fn solve_schema() -> Value {
 }
 
 /// The second call's answers (index → choice, ambiguous) for numbered questions.
-fn solve(llm: &dyn Llm, questions: &str) -> Result<HashMap<usize, (usize, bool)>> {
+pub(crate) fn solve(llm: &dyn Llm, questions: &str) -> Result<HashMap<usize, (usize, bool)>> {
     let v = llm.json(SOLVE_SYSTEM, questions, &solve_schema())?;
     Ok(v["answers"]
         .as_array()
@@ -370,7 +370,7 @@ fn solve(llm: &dyn Llm, questions: &str) -> Result<HashMap<usize, (usize, bool)>
         .collect())
 }
 
-fn numbered(items: &[Mc], passage: Option<&str>) -> String {
+pub(crate) fn numbered(items: &[Mc], passage: Option<&str>) -> String {
     let mut s = String::new();
     if let Some(p) = passage {
         s.push_str(&format!("Passage:\n{p}\n\n"));
@@ -384,12 +384,12 @@ fn numbered(items: &[Mc], passage: Option<&str>) -> String {
     s
 }
 
-fn valid(m: &Mc) -> bool {
+pub(crate) fn valid(m: &Mc) -> bool {
     m.options.len() == 4 && m.answer < 4 && !m.question.trim().is_empty() && m.options.iter().collect::<HashSet<_>>().len() == 4
 }
 
 /// Shuffles the options so the key isn't always in the same place.
-fn shuffled(m: &Mc, rng: &mut Rng) -> (Vec<String>, usize) {
+pub(crate) fn shuffled(m: &Mc, rng: &mut Rng) -> (Vec<String>, usize) {
     let mut idx: Vec<usize> = (0..4).collect();
     rng.shuffle(&mut idx);
     let options = idx.iter().map(|&i| m.options[i].clone()).collect();
@@ -749,7 +749,7 @@ pub struct PastTest {
 
 pub fn history(store: &Store) -> Result<Vec<PastTest>> {
     let mut st = store.conn.prepare(
-        "SELECT id, finished_at, result FROM tests WHERE result IS NOT NULL ORDER BY finished_at DESC LIMIT 20",
+        "SELECT id, finished_at, result FROM tests WHERE result IS NOT NULL AND kind = 'level_check' ORDER BY finished_at DESC LIMIT 20",
     )?;
     let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?;
     let mut out = Vec::new();

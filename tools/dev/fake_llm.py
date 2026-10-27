@@ -47,6 +47,47 @@ def card_fields(prompt, props):
     return out
 
 
+def practice_items(prompt):
+    """Practice-test items (ADR 0015) around the given words; the key is always option 0."""
+    n = int((re.search(r"Number of items: (\d+)", prompt) or [None, "4"])[1])
+    words = re.findall(r"^\d+\. (\S+?)（", prompt, re.M)
+    t = (re.search(r"Type: (\S+?)\.", prompt) or [None, ""])[1]
+    items = []
+    for i in range(n):
+        w = words[i] if i < len(words) else f"文法{i}"
+        if t == "漢字読み":
+            items.append({"word": w, "sentence": f"きのう、{w}について友だちと話しました。", "underlined": w, "options": [], "answer": 0, "explanation": ""})
+        elif t in ("表記", "言い換え類義"):
+            items.append({"word": w, "sentence": f"これは{w}の話です。", "underlined": w,
+                          "options": [w, "別の言葉", "ちがう言葉", "ほかの言葉"], "answer": 0, "explanation": f"{w} fits; the others don't."})
+        elif t == "用法":
+            items.append({"word": w, "sentence": w, "underlined": "",
+                          "options": [f"毎日{w}を使います。", f"{w}が走りました。", f"{w}に寝ます。", f"{w}を飲みました。"], "answer": 0,
+                          "explanation": "Only the first uses the word naturally."})
+        else:
+            items.append({"word": w, "sentence": f"毎朝、駅（　）歩いて行きます。#{i}", "underlined": "",
+                          "options": ["まで", "から", "より", "ほど"], "answer": 0, "explanation": "まで marks where you walk to."})
+    return {"practice_items": items}
+
+
+def practice_passages(prompt):
+    k = int((re.search(r"Number of texts: (\d+)", prompt) or [None, "2"])[1])
+    q = int((re.search(r"Questions per text: (\d+)", prompt) or [None, "1"])[1])
+    grammar = "Type: 文章の文法" in prompt
+    out = []
+    for t in range(k):
+        if grammar:
+            text = "私は毎朝、駅まで歩きます。" + "".join(f"［{i}］、電車に乗ります。" for i in range(1, q + 1))
+            qs = [{"question": f"［{i}］", "options": ["それから", "しかし", "つまり", "たとえば"], "answer": 0,
+                   "explanation": "それから: and then."} for i in range(1, q + 1)]
+        else:
+            text = f"田中さんは毎朝七時に起きて、八時の電車に乗ります。会社まで三十分かかります。#{t}"
+            qs = [{"question": f"田中さんは何時に起きますか。#{i}", "options": ["七時", "八時", "六時", "九時"], "answer": 0,
+                   "explanation": "The first sentence says 七時."} for i in range(q)]
+        out.append({"text": text, "text2": "田中さんの妹は九時に起きます。", "questions": qs})
+    return {"practice_passages": out}
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -66,11 +107,28 @@ class Handler(BaseHTTPRequestHandler):
                                {"question": "会社までどのぐらいかかりますか。", "options": ["三十分", "一時間", "十分", "二時間"], "answer": 0}]}
                 for i in range(3)
             ]}
+        elif props == ["practice_items"]:
+            answer = practice_items(prompt)
+        elif props == ["order_items"]:
+            n = int((re.search(r"Number of items: (\d+)", prompt) or [None, "4"])[1])
+            answer = {"order_items": [{"before": "私は", "fragments": ["駅", "の", "前", "で"], "after": f"友だちを待ちます。#{i}",
+                                       "explanation": "の links 駅 and 前; で marks the place."} for i in range(n)]}
+        elif props == ["practice_passages"]:
+            answer = practice_passages(prompt)
         elif props == ["answers"]:
-            # The checker: right on grammar items; reading questions only with the passage.
-            n = len(re.findall(r"^\d+\. ", prompt, re.M))
-            sees = "Passage:" in prompt or "（" in prompt
-            answer = {"answers": [{"index": i, "choice": 0 if sees else 1, "ambiguous": False} for i in range(n)]}
+            # The checker: right on grammar and word items; reading questions only with the
+            # passage. For ★ items the key is the fragment 前 (options are shuffled).
+            questions = []
+            for line in prompt.splitlines():
+                if re.match(r"^\d+\. ", line):
+                    questions.append([])
+                elif questions and re.match(r"^\s+\d\) ", line):
+                    questions[-1].append(line.split(") ", 1)[1])
+            sees = any(m in prompt for m in ("Passage:", "（", "【", "★", "使い方"))
+            answer = {"answers": [
+                {"index": i, "choice": opts.index("前") if "前" in opts else (0 if sees else 1), "ambiguous": False}
+                for i, opts in enumerate(questions)
+            ]}
         elif props == ["topics"]:
             answer = {"topics": ["Railway travel", "Morning routines"]}
         elif props == ["kanji"]:

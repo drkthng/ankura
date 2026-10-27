@@ -1,6 +1,6 @@
 # Handoff to the next session
 
-Updated 2026-10-27, at the end of the second working session (context is cleared after it).
+Updated 2026-10-27, after the third working session (JLPT practice tests; context is cleared after it).
 Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 `docs/HANDOFF.md` is the original phase-1 brief; its research tasks are done.
 
@@ -11,15 +11,18 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 - **M3 built** (ADRs 0012-0014, ROADMAP): Anki cards from reading, phrase selection and phrase
   matching, "Simplify this sentence", stats and stealth leeches, kanji (pop-up, RTK mnemonics,
   consistent primitive names), correctable furigana, interest profile, level check.
+- **JLPT practice tests built** (ADR 0015, 2026-10-27): mock exam per level, full or half, timer,
+  pass estimate, review with explanations, report bad questions, cards from missed words, retry.
+  Tested with fakes only (core tests + e2e).
 - **Confirmed by the owner on their collection:** the API key works; card fields pick the meaning
   that fits the sentence; kanji setup: both note types mapped (Kanji / Word / Mnemonic), sync read
   2,508 kanji; "all looks good".
 - **Not yet tried by the owner** (tested with fakes only): new mnemonic in the reader, primitive
-  analysis on the Kanji screen (2,508 stories ≈ 63 AI requests), level check, stats over days,
-  interests, reading fixes.
+  analysis on the Kanji screen (2,508 stories ≈ 63 AI requests), level check, practice tests,
+  stats over days, interests, reading fixes.
 - Last commit `bee00de` on `main`. Latest Windows installer given to the owner (kanji setup fix):
   https://github.com/drkthng/ankura/actions/runs/40498469483/artifacts/12731158630
-- Tests: 76 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+- Tests: 84 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
   (`tools/dev/e2e_smoke.py`) covering every screen. All passing.
 - **User docs:** `README.md` links one guide per feature in `docs/guide/`; update the matching
   guide with every user-facing change (CLAUDE.md says so too). Build docs: `docs/DEVELOPING.md`.
@@ -65,6 +68,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `primitives.rs` | Consistent primitive names: `analyse` (batches of 40, progress, stop, resumable; `kanji_primitives`, `kanji_analysed`), `list` (clashes first), `approve` (`primitive_names`, also used by `kanji::new_story`), `candidates`, `rewrite`, `save_rewrite` |
 | `interests.rs` | Interest profile (setting `interests`: weighted topics, avoid list), `pick` (by weight), `suggest` (AI, from pasted texts and asked-for topics) |
 | `proficiency.rs` | Level check (ADR 0014): bundled JLPT lists (`data/`, tanos CC BY), vocab yes/no with pseudowords, kanji readings with rule distractors, AI grammar/reading checked by a solver call, latent-level scoring (`p_right` guessing model), `tests`/`test_items` |
+| `practice.rs` | JLPT practice tests (ADR 0015): `layout` (大問 counts and minutes per level, half), words picked from the lists, AI items per type written in parallel (`PARALLEL` = 4) and checked by `proficiency::solve`, kanji readings by rule + dictionary check, ★ ordering built in code, level-drift check with the tokenizer, `prepare` resumable/stoppable, `sheet`/`answer`/`time`, scoring (scaled pass line, sectional minimums, verdict, A/B/C), `review`, `report`, `retry`. Reuses the `tests`/`test_items` tables (kind `practice`/`retry`, schema v11: `config`, `reported`) |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -77,13 +81,13 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |
-| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), Test (level check), AnkiSetup (incl. kanji note mapping), Settings |
+| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), Test (level check), Practice (practice tests), AnkiSetup (incl. kanji note mapping), Settings |
 | `src/components/` | `WordPopover`, `KanjiPanel`, `CoverageBar` |
 | `tools/dev/` | `fake_ankiconnect.py` (incl. a "Satzkarten" note type like the owner's), `fake_llm.py`, `jamdict_to_yomitan.py`, `e2e_smoke.py` |
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0012 in `docs/adr/`. Most relevant now: 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0015 in `docs/adr/`. Most relevant now: 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -126,10 +130,13 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 1. **Support the owner's first real use** of what's untested (§1). Likely issues: the AI's story
    language/formatting vs theirs (`kanji::new_story`), quality and cost of the primitive analysis
    and the clash list (`primitives.rs`), level check items from the real model (the solver check
-   may drop many; `grammar_items` errors if none survive).
-2. **Next feature (owner's order):** JLPT practice tests per level (research
-   `docs/research/proficiency-tests.md` §Recommendations v1.5), then listening (TTS), Italian
-   (CILS) and Spanish (DELE/SIELE). Ask the owner before starting; they may have new requests.
+   may drop many; `grammar_items` errors if none survive). **Practice tests with the real model:**
+   preparation time and cost (a full N1 is ~15-25 calls, 4 at a time), how many items the check
+   drops per type (a type that stays short is used with fewer items), quality of 用法, 表記 and ★
+   items, whether the level-drift check drops too much, prompt lengths for long texts. Ask the
+   owner to report bad questions; they are stored with `reported = 1` in `test_items`.
+2. **Next feature (owner's order):** listening (TTS), then Italian (CILS) and Spanish
+   (DELE/SIELE). Ask the owner before starting; they may have new requests.
 3. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分,
    人気のない, この方) are guessed (user can fix them; `reading_fixes`); Sudachi splits some words
    oddly (一時的 → 一|時|的); the level check's `p_right` rates are assumptions (stored answers can

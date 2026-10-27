@@ -268,6 +268,97 @@ export interface TestIntro {
   history: { id: string; finished_at: number; result: Estimate }[];
 }
 
+export type Mondai =
+  | "kanji_reading" | "orthography" | "word_formation" | "context" | "paraphrase" | "usage"
+  | "grammar_form" | "sentence_order" | "text_grammar"
+  | "short_text" | "mid_text" | "long_text" | "integrated" | "argument" | "info_search";
+
+export interface PartSpec {
+  name: string;
+  minutes: number;
+  mondai: [Mondai, number][];
+}
+
+export interface PracticeItem {
+  id: string;
+  number: number;
+  prompt: string;
+  underline: string | null;
+  options: string[];
+  passage: string | null;
+  group: string | null;
+}
+
+export interface PracticeSheet {
+  id: string;
+  kind: "practice" | "retry";
+  level: number;
+  half: boolean;
+  timed: boolean;
+  ready: boolean;
+  prepared: number;
+  total: number;
+  finished: boolean;
+  parts: {
+    name: string;
+    minutes: number;
+    used_secs: number;
+    submitted: boolean;
+    groups: { mondai: Mondai; name_ja: string; instruction: string; hint: string; items: PracticeItem[] }[];
+  }[];
+  answers: Record<string, number>;
+}
+
+export type Verdict = "likely_pass" | "borderline" | "unlikely";
+
+export interface PracticeResult {
+  kind: "practice" | "retry";
+  level: number;
+  half: boolean;
+  right: number;
+  total: number;
+  unanswered: number;
+  reported: number;
+  sections: { name: string; right: number; total: number; score: number; max: number; minimum: number }[];
+  total_score: number;
+  total_max: number;
+  pass_line: number;
+  verdict: Verdict | null;
+  grades: { name: string; right: number; total: number; grade: "A" | "B" | "C" }[];
+  by_type: { mondai: Mondai; name_ja: string; right: number; total: number }[];
+  overtime: string[];
+}
+
+export interface PastPractice {
+  id: string;
+  kind: "practice" | "retry";
+  level: number;
+  half: boolean;
+  started_at: number;
+  finished_at: number | null;
+  ready: boolean;
+  answered: number;
+  items: number;
+  result: PracticeResult | null;
+}
+
+export interface PracticeIntro {
+  suggested: number;
+  credit: string;
+  tests: PastPractice[];
+  layouts: [number, PartSpec[]][];
+}
+
+export interface ReviewItem extends PracticeItem {
+  mondai: Mondai;
+  name_ja: string;
+  answer: number;
+  choice: number | null;
+  explanation: string;
+  reported: boolean;
+  word: { expression: string; reading: string } | null;
+}
+
 /** Ability 0-5 as a name: 0 below N5, 1 N5 … 5 N1. */
 export const abilityName = (a: number) => (a === 0 ? "below N5" : `N${6 - a}`);
 
@@ -410,6 +501,20 @@ export const api = {
   testGrammar: (testId: string, stage: number) => invoke<TestItem[]>("test_grammar", { testId, stage }),
   testReading: (testId: string) => invoke<TestItem[]>("test_reading", { testId }),
   testFinish: (testId: string) => invoke<Estimate>("test_finish", { testId }),
+  practiceIntro: () => invoke<PracticeIntro>("practice_intro"),
+  practiceCreate: (level: number, half: boolean, timed: boolean) => invoke<string>("practice_create", { level, half, timed }),
+  practicePrepare: (testId: string) => invoke<{ done: number; total: number }>("practice_prepare", { testId }),
+  practiceStop: () => invoke<void>("practice_stop"),
+  practiceSheet: (testId: string) => invoke<PracticeSheet>("practice_sheet", { testId }),
+  practiceAnswer: (testId: string, itemId: string, choice: number | null) => invoke<void>("practice_answer", { testId, itemId, choice }),
+  practiceTime: (testId: string, part: number, usedSecs: number, submitted: boolean) =>
+    invoke<void>("practice_time", { testId, part, usedSecs, submitted }),
+  practiceFinish: (testId: string) => invoke<PracticeResult>("practice_finish", { testId }),
+  practiceReview: (testId: string) => invoke<ReviewItem[]>("practice_review", { testId }),
+  practiceReport: (testId: string, itemId: string, reported: boolean) =>
+    invoke<PracticeResult>("practice_report", { testId, itemId, reported }),
+  practiceRetry: (testId: string) => invoke<string>("practice_retry", { testId }),
+  practiceDelete: (testId: string) => invoke<void>("practice_delete", { testId }),
   getInterests: () => invoke<Interests>("get_interests"),
   setInterests: (value: Interests) => invoke<void>("set_interests", { value }),
   pickTopic: () => invoke<string | null>("pick_topic"),

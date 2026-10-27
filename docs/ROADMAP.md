@@ -73,8 +73,11 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
       the avoid list goes into every text prompt.
 - [x] Proficiency test v1: a JLPT-style level check (ADR 0014): yes/no words with made-up words,
       kanji readings, two-stage AI grammar, reading; latent-level result with CEFR reference.
-- [ ] JLPT practice tests per level (v1.5); Italian (CILS) and Spanish (DELE/SIELE) tests;
-      listening with TTS. Research in `docs/research/proficiency-tests.md`.
+- [x] JLPT practice tests per level (ADR 0015): the JLPT's question types, order and times
+      without listening, full or half length, optional timer, scaled pass line and verdict,
+      explanations, report a bad question, cards from missed words, retry missed.
+- [ ] Italian (CILS) and Spanish (DELE/SIELE) tests; listening with TTS. Research in
+      `docs/research/proficiency-tests.md`.
 
 ## M4: Release
 
