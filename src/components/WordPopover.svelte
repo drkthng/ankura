@@ -34,7 +34,7 @@
   async function speakWord() {
     speakError = "";
     try {
-      await speech.say(token.key?.reading || token.dictionary_form);
+      await speech.say(token.key?.reading || token.dictionary_form, "narrator", textId);
     } catch (e) {
       speakError = String(e).replace(/^Error: /, "");
     }

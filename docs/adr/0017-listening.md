@@ -36,6 +36,10 @@ or a paid cloud voice.
 - Works offline on every desktop with a Japanese system voice; the quality of those voices
   varies (Windows' Japanese voices are installed under Speech settings). VOICEVOX sounds much
   better but is a separate install.
-- The reader sends the text as written; the voice works out readings itself, so it can misread
-  words Ankura's furigana gets right (and corrected readings aren't passed on yet).
+- **Update (2026-10-28, owner's report: 口籠もった read as "kuchikagomotta"):** the voice is sent
+  the text with every word with kanji replaced by the reading the reader shows
+  (`reader::spoken`: Sudachi's reading, counters, the learner's corrections), so it no longer
+  guesses and corrected readings reach it. On by default; setting `tts_readings`. Kana-only words
+  can lose a little pitch-accent quality; Sudachi's own mistakes become audible, so common ones
+  are fixed in the tokenizer (何 なに/なん by the next word, 明日 あした).
 - Audio files accumulate; nothing cleans them up yet (a sentence is about 100-300 KB).

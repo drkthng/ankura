@@ -10,6 +10,8 @@ export interface SpeechSettings {
   style: number | null;
   speed: number;
   voicevox_url: string;
+  /** Speak words with the readings the reader shows, not the voice's own guesses. */
+  readings: boolean;
 }
 
 export interface VoicevoxSpeaker {
@@ -124,9 +126,11 @@ export function setSpeed(x: number) {
 }
 
 /** Speaks a text; resolves when it ends or is stopped, rejects when no voice can speak it. */
-export async function say(text: string, role: Role = "narrator"): Promise<void> {
+export async function say(text: string, role: Role = "narrator", textId: string | null = null): Promise<void> {
   stop();
   const v = await current();
+  // The readings Ankura shows (and the learner's corrections) instead of the voice's guesses.
+  if (settings?.readings) text = await invoke<string>("speech_text", { text, textId }).catch(() => text);
   if (v.engine === "none") throw new Error(`Can't speak: ${v.label}. Choose a voice in Settings → Listening.`);
   if (v.engine === "voicevox") {
     const raw = await invoke<ArrayBuffer | Uint8Array | number[]>("voicevox_speak", { text, style: roleStyle(role), speed: speed() });

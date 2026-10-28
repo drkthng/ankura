@@ -260,7 +260,7 @@
       await tick();
       document.querySelector(".text .speaking")?.scrollIntoView({ block: "center", behavior: "smooth" });
       try {
-        await speech.say(sentences[i].text);
+        await speech.say(sentences[i].text, "narrator", id);
       } catch (e) {
         if (run === me) {
           playError = String(e).replace(/^Error: /, "");

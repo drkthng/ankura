@@ -270,7 +270,8 @@ def main():
         spoken = json.loads(OPENER.open("http://127.0.0.1:50021/spoken").read())
         cached = list(Path(data).glob("*/audio/voicevox/2/*.wav"))
         print("listening:", voice, "| end:", state, "| spoken:", len(spoken), spoken[:2], "| cached:", len(cached))
-        assert voice == "Voice: VOICEVOX:四国めたん" and spoken and spoken[0] in STORY.replace("\n", "") and cached, (voice, spoken, cached)
+        # The voice gets the readings the reader shows (毎朝 → まいあさ), not kanji to guess.
+        assert voice == "Voice: VOICEVOX:四国めたん" and spoken and "まいあさ" in spoken[0] and "毎朝" not in spoken[0] and cached, (voice, spoken, cached)
         if audio:  # with a sound server the whole text plays, sentence by sentence
             assert state == "done" and len(spoken) >= 6, (state, spoken)
         d.js("[...document.querySelectorAll('button')].find(b => b.title === 'Stop')?.click()")
@@ -557,8 +558,8 @@ def main():
         print("practice parts handed in:", parts)
         assert len(parts) == 3 and parts[2].endswith("聴解"), parts
         spoken = json.loads(OPENER.open("http://127.0.0.1:50021/spoken").read())
-        print("listening spoken:", [x for x in spoken if "パン" in x or "映画" in x or "話しています" in x][:3])
-        assert any("話しています" in x for x in spoken), spoken[-5:]
+        print("listening spoken:", [x for x in spoken if "パン" in x or "えいが" in x or "はなしています" in x][:3])
+        assert any("はなしています" in x for x in spoken), spoken[-5:]
         verdict = d.text("//p[contains(@class,'headline')]")
         sections = d.js("return [...document.querySelectorAll('.sec strong')].map(e => e.textContent)")
         print("practice result:", verdict, sections)

@@ -16,7 +16,8 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   Tested with fakes only (core tests + e2e).
 - **Listening in the reader** (ADR 0017, 2026-10-28): Web Speech (computer voices) or VOICEVOX
   (`voicevox.rs`, audio cached under `<data>/audio/voicevox`), sentence by sentence with
-  highlighting; `src/lib/speech.ts`; Settings → Listening. Tested with a fake VOICEVOX
+  highlighting; `src/lib/speech.ts`; Settings → Listening. The voice gets the reader's readings
+  (`reader::spoken`, command `speech_text`, setting `tts_readings`). Tested with a fake VOICEVOX
   (`tools/dev/fake_voicevox.py`) and a PulseAudio null sink in the e2e.
 - **JLPT listening questions** (ADR 0018, 2026-10-28): optional 聴解 part in practice tests
   (`Mondai::TaskListening` … `QuickResponse`, `Item.script`, `listening_items`), roles in

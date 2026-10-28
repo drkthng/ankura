@@ -352,6 +352,16 @@
         {/if}
       {/if}
       <div class="row">
+        <label class="radio">
+          <input type="checkbox" checked={sp.readings} onchange={(e) => saveSpeech("tts_readings", e.currentTarget.checked ? "on" : "off")} />
+          Read words as the furigana shows them
+        </label>
+        <span class="muted small">
+          Recommended: the voice says Ankura's readings, including the ones you corrected, instead of guessing (口籠もる is
+          くちごもる).
+        </span>
+      </div>
+      <div class="row">
         <button onclick={testVoice}>Test the voice</button>
         {#if speechMsg}<span class="muted small">{speechMsg}</span>{/if}
       </div>

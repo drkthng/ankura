@@ -175,7 +175,7 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
 
 #[tauri::command]
 async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: [&str; 17] = [
+    const ALLOWED: [&str; 18] = [
         "anki_url",
         "anki_query",
         "known_days",
@@ -193,6 +193,7 @@ async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()
         "tts_style",
         "tts_speed",
         "voicevox_url",
+        "tts_readings",
     ];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
@@ -750,6 +751,8 @@ struct SpeechSettings {
     style: Option<u32>,
     speed: f64,
     voicevox_url: String,
+    /// Speak words with the readings the reader shows (default on).
+    readings: bool,
 }
 
 #[tauri::command]
@@ -761,6 +764,7 @@ async fn speech_settings(app: AppHandle) -> CmdResult<SpeechSettings> {
             style: s.setting("tts_style").and_then(|v| v.parse().ok()),
             speed: s.setting("tts_speed").and_then(|v| v.parse().ok()).unwrap_or(1.0),
             voicevox_url: s.setting("voicevox_url").filter(|v| !v.trim().is_empty()).unwrap_or_else(|| voicevox::DEFAULT_URL.into()),
+            readings: s.setting("tts_readings").is_none_or(|v| v != "off"),
         })
     })
     .await
@@ -770,6 +774,17 @@ impl AppState {
     fn voicevox(&self) -> voicevox::Voicevox {
         voicevox::Voicevox::new(&self.setting("voicevox_url").filter(|v| !v.trim().is_empty()).unwrap_or_else(|| voicevox::DEFAULT_URL.into()))
     }
+}
+
+/// A text as the voice should say it: words with kanji replaced by the readings the reader shows
+/// (with the corrections for `text_id`). Without the tokenizer, the text as it is.
+#[tauri::command]
+async fn speech_text(app: AppHandle, text: String, text_id: Option<String>) -> CmdResult<String> {
+    blocking(app, move |s| match s.tokenizer() {
+        Ok(tok) => ankura_core::reader::spoken(&s.store(), tok.as_ref(), &text, text_id.as_deref()).map_err(err),
+        Err(_) => Ok(text),
+    })
+    .await
 }
 
 /// VOICEVOX's voices; an error when it isn't running.
@@ -1140,6 +1155,7 @@ pub fn run() {
             test_reading,
             test_finish,
             speech_settings,
+            speech_text,
             voicevox_speakers,
             voicevox_speak,
             practice_intro,

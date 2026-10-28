@@ -286,6 +286,19 @@ pub fn analyze_text(store: &Store, tok: &dyn Tokenizer, text: &str, text_id: Opt
     Ok(ReaderDoc { paragraphs, coverage: cov })
 }
 
+/// The text as a voice should say it (ADR 0017): every word with kanji replaced by the reading
+/// the reader shows above it (Sudachi's reading, counters, and the learner's corrections), so the
+/// voice doesn't guess (口籠もった is くちごもった, not くちかごもった). Kana and punctuation stay.
+pub fn spoken(store: &Store, tok: &dyn Tokenizer, text: &str, text_id: Option<&str>) -> Result<String> {
+    let doc = analyze_text(store, tok, text, text_id)?;
+    Ok(doc
+        .paragraphs
+        .iter()
+        .map(|p| p.iter().flat_map(|t| t.segments.iter()).map(|g| g.ruby.as_deref().unwrap_or(&g.text)).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +407,15 @@ mod tests {
         let doc = analyze(&s, t, "宿題をした。").unwrap();
         let し = doc.paragraphs[0].iter().find(|x| x.surface == "し").unwrap();
         assert_eq!((し.state, し.source.as_str()), (WordState::Known, "basic"));
+    }
+
+    #[test]
+    fn spoken_form_uses_the_shown_readings() {
+        let Some(t) = sudachi() else { return };
+        let s = Store::open_in_memory().unwrap();
+        assert_eq!(spoken(&s, t, "彼は口籠もった。\n猫が三匹いる。", None).unwrap(), "かれはくちごもった。\nねこがさんびきいる。");
+        // A corrected reading is what the voice says, too.
+        s.set_reading_fix("ja", "人気", Some("ひとけ"), None).unwrap();
+        assert_eq!(spoken(&s, t, "人気のない道", None).unwrap(), "ひとけのないみち");
     }
 }

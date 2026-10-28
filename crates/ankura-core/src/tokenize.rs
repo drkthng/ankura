@@ -157,6 +157,7 @@ impl Tokenizer for SudachiTokenizer {
             });
         }
         crate::counters::fix_readings(&mut out);
+        nani(&mut out);
         Ok(out)
     }
 }
@@ -164,7 +165,24 @@ impl Tokenizer for SudachiTokenizer {
 /// Sudachi readings that are right but too formal for ordinary prose: (surface, lemma, reading).
 /// Applied to both the furigana and the word key, so the key matches how Anki cards spell the
 /// reading. The reader's correctable furigana (ROADMAP M3) handles the rest.
-const PREFERRED_READINGS: &[(&str, &str, &str)] = &[("私", "私", "わたし")];
+const PREFERRED_READINGS: &[(&str, &str, &str)] = &[("私", "私", "わたし"), ("明日", "明日", "あした")];
+
+/// 何 is なに before を, が, も, か, に, へ, や (何を, 何が, 何も) and at the end of a sentence;
+/// Sudachi often says なん there. なん stays before で, の, と, だ, です and counters (何で, 何の,
+/// 何だ, 何人).
+fn nani(tokens: &mut [Token]) {
+    for i in 0..tokens.len() {
+        if tokens[i].surface != "何" || tokens[i].reading != "なん" {
+            continue;
+        }
+        let next = tokens.get(i + 1).map(|t| t.surface.as_str()).unwrap_or("");
+        let first = next.chars().next();
+        if first.is_none_or(|c| "をがもかにへや。？！?!、".contains(c)) && !next.starts_with("かい") {
+            tokens[i].reading = "なに".into();
+            tokens[i].lemma_reading = "なに".into();
+        }
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod test_support {
@@ -208,6 +226,14 @@ mod tests {
         assert_eq!((toks[0].reading.as_str(), toks[0].lemma_reading.as_str()), ("わたし", "わたし"));
         let i = toks.iter().find(|t| t.surface == "い").unwrap();
         assert_eq!(i.kind, TokenKind::Grammar);
+
+        let read = |text: &str| t.tokenize(text).unwrap().into_iter().find(|x| x.surface == "何").map(|x| x.reading).unwrap();
+        assert_eq!(read("何をしますか。"), "なに");
+        assert_eq!(read("何が好き？"), "なに");
+        assert_eq!(read("何で来たの？"), "なん");
+        assert_eq!(read("何の本ですか。"), "なん");
+        let toks = t.tokenize("明日行きます").unwrap();
+        assert_eq!(toks[0].reading, "あした");
 
         let toks = t.tokenize("東京へ行った").unwrap();
         assert_eq!(toks[0].kind, TokenKind::Name);
