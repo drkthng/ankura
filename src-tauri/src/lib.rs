@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::{interests, kanji, practice, primitives, proficiency};
+use ankura_core::{interests, kanji, practice, primitives, proficiency, voicevox};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -175,7 +175,7 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
 
 #[tauri::command]
 async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: [&str; 12] = [
+    const ALLOWED: [&str; 17] = [
         "anki_url",
         "anki_query",
         "known_days",
@@ -188,6 +188,11 @@ async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()
         "card_note_type",
         "card_deck",
         "cards_auto_add",
+        "tts_engine",
+        "tts_system_voice",
+        "tts_style",
+        "tts_speed",
+        "voicevox_url",
     ];
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
@@ -734,6 +739,55 @@ async fn test_finish(app: AppHandle, test_id: String) -> CmdResult<proficiency::
     blocking(app, move |s| proficiency::finish(&s.store(), &test_id).map_err(err)).await
 }
 
+// --- listening (ADR 0017) ---
+
+#[derive(Serialize)]
+struct SpeechSettings {
+    /// 'auto' (VOICEVOX when it runs, else the computer's voices), 'system' or 'voicevox'.
+    engine: String,
+    system_voice: String,
+    /// VOICEVOX voice (style id); None: the engine's first.
+    style: Option<u32>,
+    speed: f64,
+    voicevox_url: String,
+}
+
+#[tauri::command]
+async fn speech_settings(app: AppHandle) -> CmdResult<SpeechSettings> {
+    blocking(app, |s| {
+        Ok(SpeechSettings {
+            engine: s.setting("tts_engine").filter(|v| !v.is_empty()).unwrap_or_else(|| "auto".into()),
+            system_voice: s.setting("tts_system_voice").unwrap_or_default(),
+            style: s.setting("tts_style").and_then(|v| v.parse().ok()),
+            speed: s.setting("tts_speed").and_then(|v| v.parse().ok()).unwrap_or(1.0),
+            voicevox_url: s.setting("voicevox_url").filter(|v| !v.trim().is_empty()).unwrap_or_else(|| voicevox::DEFAULT_URL.into()),
+        })
+    })
+    .await
+}
+
+impl AppState {
+    fn voicevox(&self) -> voicevox::Voicevox {
+        voicevox::Voicevox::new(&self.setting("voicevox_url").filter(|v| !v.trim().is_empty()).unwrap_or_else(|| voicevox::DEFAULT_URL.into()))
+    }
+}
+
+/// VOICEVOX's voices; an error when it isn't running.
+#[tauri::command]
+async fn voicevox_speakers(app: AppHandle) -> CmdResult<Vec<voicevox::Speaker>> {
+    blocking(app, |s| s.voicevox().speakers().map_err(err)).await
+}
+
+/// WAV audio for a text from VOICEVOX, kept on disk for next time.
+#[tauri::command]
+async fn voicevox_speak(app: AppHandle, text: String, style: u32, speed: f64) -> CmdResult<tauri::ipc::Response> {
+    blocking(app, move |s| {
+        let bytes = s.voicevox().speak(&s.data_dir.join("audio").join("voicevox"), &text, style, speed).map_err(err)?;
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+}
+
 // --- practice tests (ADR 0015) ---
 
 #[derive(Serialize)]
@@ -1075,6 +1129,9 @@ pub fn run() {
             test_grammar,
             test_reading,
             test_finish,
+            speech_settings,
+            voicevox_speakers,
+            voicevox_speak,
             practice_intro,
             practice_create,
             practice_plan,

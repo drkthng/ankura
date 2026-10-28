@@ -79,7 +79,10 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] Keep and reuse AI output (ADR 0016): log of every request, question bank for practice
       tests and the level check (mix chosen per test), cached simpler sentences and card
       sentences, savings shown in Settings.
-- [ ] Italian (CILS) and Spanish (DELE/SIELE) tests; listening with TTS. Research in
+- [x] Listening in the reader (ADR 0017): computer voices or VOICEVOX, sentence by sentence with
+      highlighting, word and sentence in the pop-up, audio kept on disk.
+- [ ] JLPT listening questions in practice tests (即時応答, 課題理解 first).
+- [ ] Italian (CILS) and Spanish (DELE/SIELE) tests. Research in
       `docs/research/proficiency-tests.md`.
 
 ## M4: Release

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import {
     api,
     keyId,
@@ -13,6 +13,7 @@
   } from "../lib/api";
   import CoverageBar from "../components/CoverageBar.svelte";
   import WordPopover from "../components/WordPopover.svelte";
+  import * as speech from "../lib/speech";
 
   let { id, onback, oncards }: { id: string; onback: () => void; oncards: () => void } = $props();
 
@@ -39,7 +40,8 @@
   let extra = $state<TextExtra | null>(null);
   let doc = $state<ReaderDoc | null>(null);
   let error = $state("");
-  let selected = $state<{ token: ReaderToken; rect: DOMRect; sentence: string } | null>(null);
+  /** `at`: index of the sentence in `sentences`, to listen from there. */
+  let selected = $state<{ token: ReaderToken; rect: DOMRect; sentence: string; at: number } | null>(null);
 
   onMount(async () => {
     try {
@@ -93,6 +95,7 @@
     return { destroy: () => observer.unobserve(node) };
   }
   onDestroy(() => {
+    stopPlay();
     observer.disconnect();
     timers.forEach(clearTimeout);
     clearInterval(flushTimer);
@@ -112,9 +115,11 @@
   }
 
   function open(token: ReaderToken, ev: MouseEvent, para: ReaderToken[]) {
-    if (!token.key) return;
-    const sentence = sentenceAround(para, para.indexOf(token));
-    selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect(), sentence };
+    if (!token.key || !doc) return;
+    const j = para.indexOf(token);
+    const sentence = sentenceAround(para, j);
+    const at = sentIndex[doc.paragraphs.indexOf(para)]?.[j] ?? 0;
+    selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect(), sentence, at };
     pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
   }
 
@@ -139,7 +144,9 @@
       const token = await api.phraseInfo(text);
       if (!token?.key) return;
       sel.removeAllRanges();
-      selected = { token, rect, sentence };
+      const pi = p ? Number(p.dataset.p) : -1;
+      const at = Math.max(0, sentences.findIndex((x) => x.p === pi && x.text.includes(text)));
+      selected = { token, rect, sentence, at };
       pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
     } catch (e) {
       error = String(e);
@@ -208,17 +215,111 @@
     flush();
   }
 
+  // --- listening (ADR 0017): sentence by sentence, the current one highlighted ---
+  type Sentence = { p: number; a: number; b: number; text: string };
+  /** Sentences in reading order; token [p][j] belongs to sentIndex[p][j]. */
+  const split = $derived.by(() => {
+    const out: Sentence[] = [];
+    const index: number[][] = [];
+    (doc?.paragraphs ?? []).forEach((para, p) => {
+      index.push([]);
+      let a = 0;
+      for (let j = 0; j < para.length; j++) {
+        index[p].push(out.length);
+        const end = j === para.length - 1 || (ENDS.test(para[j].surface) && !/^[」』）)]/.test(para[j + 1].surface));
+        if (end) {
+          const text = para.slice(a, j + 1).map((t) => t.surface).join("").trim();
+          if (text) out.push({ p, a, b: j, text });
+          else index[p].splice(a);
+          a = j + 1;
+        }
+      }
+    });
+    return { out, index };
+  });
+  const sentences = $derived(split.out);
+  const sentIndex = $derived(split.index);
+  let playState = $state<"idle" | "playing" | "paused">("idle");
+  let cur = $state(-1);
+  let voice = $state("");
+  let playError = $state("");
+  let rate = $state(1);
+  let run = 0;
+  onMount(() => {
+    speech.load().then((s) => (rate = s.speed)).catch(() => {});
+  });
+
+  async function play(from = Math.max(0, cur)) {
+    const me = ++run;
+    playError = "";
+    playState = "playing";
+    voice = (await speech.current().catch(() => null))?.label ?? "";
+    for (let i = from; i < sentences.length; i++) {
+      if (run !== me) return;
+      cur = i;
+      await tick();
+      document.querySelector(".text .speaking")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      try {
+        await speech.say(sentences[i].text);
+      } catch (e) {
+        if (run === me) {
+          playError = String(e).replace(/^Error: /, "");
+          playState = "idle";
+        }
+        return;
+      }
+    }
+    if (run === me) {
+      playState = "idle";
+      cur = -1;
+    }
+  }
+  function pausePlay() {
+    speech.pause();
+    playState = "paused";
+  }
+  function resumePlay() {
+    speech.resume();
+    playState = "playing";
+  }
+  function stopPlay() {
+    run++;
+    speech.stop();
+    playState = "idle";
+    cur = -1;
+  }
+  function togglePlay() {
+    if (playState === "playing") pausePlay();
+    else if (playState === "paused") resumePlay();
+    else play();
+  }
+  function onkey(e: KeyboardEvent) {
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (e.key.toLowerCase() === "p" && !e.ctrlKey && !e.metaKey && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") togglePlay();
+  }
+
   const showRuby = (t: ReaderToken) =>
     t.has_kanji && furigana !== "none" && (furigana === "all" || !["known", "fading", "marked_known", "ignored"].includes(t.state));
   const isWord = (t: ReaderToken) => t.key !== null;
 </script>
 
-<svelte:window onmouseup={selectPhrase} />
+<svelte:window onmouseup={selectPhrase} onkeydown={onkey} />
 
 <div class="reader-page">
   <header class="toolbar">
     <button class="ghost" onclick={onback}>← Library</button>
     <h1 class="title">{meta?.title ?? ""}</h1>
+    <div class="listen">
+      {#if playState === "playing"}
+        <button onclick={pausePlay} title="Pause (P)">⏸ Pause</button>
+      {:else}
+        <button onclick={togglePlay} title="Read the text aloud (P)">▶ {playState === "paused" ? "Resume" : "Listen"}</button>
+      {/if}
+      {#if playState !== "idle"}<button class="ghost" onclick={stopPlay} title="Stop">⏹</button>{/if}
+      <select bind:value={rate} onchange={() => speech.setSpeed(rate)} title="Speed">
+        {#each [0.7, 0.85, 1, 1.15, 1.3] as r}<option value={r}>{r}×</option>{/each}
+      </select>
+    </div>
     <div class="controls">
       <label>
         Furigana
@@ -238,7 +339,9 @@
   {#if doc}
     <div class="summary">
       <CoverageBar coverage={doc.coverage} />
-      <p class="muted tip">Tip: drag across several words to look them up as one phrase.</p>
+      <p class="muted tip">Tip: drag across several words to look them up as one phrase. <kbd>P</kbd> reads the text aloud.</p>
+      {#if playState !== "idle" && voice}<p class="muted tip">Voice: {voice}</p>{/if}
+      {#if playError}<p class="error tip">{playError}</p>{/if}
       {#if extra}
         <p class="muted written">
           Written for you around {extra.targets.join("、")}{extra.topic ? ` · ${extra.topic}` : ""}
@@ -248,10 +351,11 @@
     <article class="text" class:hl={highlight} class:vertical bind:this={article}>
       {#each doc.paragraphs as para, i}
         <p use:observe data-p={i}>
-          {#each para as t}
+          {#each para as t, j}
             {#if isWord(t)}
               <span
                 class="tok st-{t.state}"
+                class:speaking={cur >= 0 && sentIndex[i]?.[j] === cur}
                 class:name={t.kind === "name"}
                 class:selected={selected?.token === t}
                 role="button"
@@ -264,7 +368,7 @@
                 {/each}
               </span>
             {:else}
-              {#each t.segments as s}{s.text}{/each}
+              <span class:speaking={cur >= 0 && sentIndex[i]?.[j] === cur}>{#each t.segments as s}{s.text}{/each}</span>
             {/if}
           {/each}
         </p>
@@ -305,6 +409,11 @@
     ondontknow={dontKnow}
     sentence={selected.sentence}
     textId={id}
+    onlisten={() => {
+      const at = selected?.at ?? 0;
+      selected = null;
+      play(at);
+    }}
     onreading={async () => {
       selected = null;
       doc = (await api.openText(id)).doc;
@@ -338,6 +447,29 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .listen {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .listen select {
+    font-size: 0.85rem;
+    padding: 0.3em 0.4em;
+  }
+  .speaking {
+    background: color-mix(in srgb, var(--gold) 22%, transparent);
+    border-radius: 3px;
+  }
+  .hl .tok.speaking {
+    box-shadow: inset 0 -2px 0 var(--gold);
+  }
+  kbd {
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 0.35em;
   }
   .controls {
     display: flex;

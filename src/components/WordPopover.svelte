@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api, stateLabel, type ReaderToken, type Simplified, type WordInfo, type WordState } from "../lib/api";
   import KanjiPanel from "./KanjiPanel.svelte";
+  import * as speech from "../lib/speech";
 
   let {
     token,
@@ -12,6 +13,7 @@
     sentence = "",
     textId = null,
     onreading = () => {},
+    onlisten,
   }: {
     token: ReaderToken;
     anchor: DOMRect;
@@ -23,7 +25,20 @@
     textId?: string | null;
     /** A reading was corrected: the text needs reloading. */
     onreading?: () => void;
+    /** Read the text aloud from this word's sentence (ADR 0017). */
+    onlisten?: () => void;
   } = $props();
+
+  // --- listening: the word from its reading in kana, so a lone kanji isn't misread ---
+  let speakError = $state("");
+  async function speakWord() {
+    speakError = "";
+    try {
+      await speech.say(token.key?.reading || token.dictionary_form);
+    } catch (e) {
+      speakError = String(e).replace(/^Error: /, "");
+    }
+  }
 
   // --- correcting the reading ---
   let fixing = $state(false);
@@ -120,6 +135,7 @@
   <header>
     <div class="word">
       <span class="lemma">{token.dictionary_form}</span>
+      <button class="speak" title="Listen" aria-label="Listen to the word" onclick={speakWord}>🔊</button>
       {#if key.reading && key.reading !== token.dictionary_form}
         <span class="reading">
           {key.reading}
@@ -211,6 +227,8 @@
         </button>
       {/if}
       {#if simpleError}<p class="error small">{simpleError}</p>{/if}
+      {#if onlisten}<button class="ghost" onclick={onlisten} title="Read the text aloud from this sentence">▶ Listen from here</button>{/if}
+      {#if speakError}<p class="error small">{speakError}</p>{/if}
     </section>
   {/if}
 
@@ -330,6 +348,13 @@
   .small {
     font-size: 0.82rem;
     margin: 0;
+  }
+  .speak {
+    border: none;
+    background: none;
+    padding: 0 0.2rem;
+    cursor: pointer;
+    font-size: 0.95rem;
   }
   .fix {
     border: none;

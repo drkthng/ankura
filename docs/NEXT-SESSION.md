@@ -14,6 +14,10 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 - **JLPT practice tests built** (ADR 0015, 2026-10-27): mock exam per level, full or half, timer,
   pass estimate, review with explanations, report bad questions, cards from missed words, retry.
   Tested with fakes only (core tests + e2e).
+- **Listening in the reader** (ADR 0017, 2026-10-28): Web Speech (computer voices) or VOICEVOX
+  (`voicevox.rs`, audio cached under `<data>/audio/voicevox`), sentence by sentence with
+  highlighting; `src/lib/speech.ts`; Settings → Listening. Tested with a fake VOICEVOX
+  (`tools/dev/fake_voicevox.py`) and a PulseAudio null sink in the e2e.
 - **AI output kept and reused** (ADR 0016, owner's request 2026-10-27): every request logged
   (`ai_log`), question bank for practice tests and level check (`item_bank`; practice tests
   choose bank first / half new / all new, optionally repeating seen questions), cached simpler
@@ -27,7 +31,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   stats over days, interests, reading fixes.
 - Last commit `bee00de` on `main`. Latest Windows installer given to the owner (kanji setup fix):
   https://github.com/drkthng/ankura/actions/runs/40498469483/artifacts/12731158630
-- Tests: 89 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+- Tests: 92 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
   (`tools/dev/e2e_smoke.py`) covering every screen. All passing.
 - **User docs:** `README.md` links one guide per feature in `docs/guide/`; update the matching
   guide with every user-facing change (CLAUDE.md says so too). Build docs: `docs/DEVELOPING.md`.
@@ -75,6 +79,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `proficiency.rs` | Level check (ADR 0014): bundled JLPT lists (`data/`, tanos CC BY), vocab yes/no with pseudowords, kanji readings with rule distractors, AI grammar/reading checked by a solver call, latent-level scoring (`p_right` guessing model), `tests`/`test_items` |
 | `practice.rs` | JLPT practice tests (ADR 0015): `layout` (大問 counts and minutes per level, half), words picked from the lists, AI items per type written in parallel (`PARALLEL` = 4) and checked by `proficiency::solve`, kanji readings by rule + dictionary check, ★ ordering built in code, level-drift check with the tokenizer, `prepare` resumable/stoppable, `sheet`/`answer`/`time`, scoring (scaled pass line, sectional minimums, verdict, A/B/C), `review`, `report`, `retry`. Reuses the `tests`/`test_items` tables (kind `practice`/`retry`, schema v11: `config`, `reported`) |
 | `memory.rs` | Kept AI output (ADR 0016): `Recorded` (wraps any `Llm`, logs to `ai_log`; the app's `llm()` returns it), question bank (`bank_add`, `bank_candidates`, `bank_used`, `bank_report`, `bank_counts`), `cache_get`/`cache_put` (`simplify` by sentence, `card_sentence` by word), `reused` counters, `stats`, `backfill` (v12 upgrade) |
+| `voicevox.rs` | VOICEVOX client (ADR 0017): `speakers`, `synthesize` (speed via `speedScale`), `speak` (disk cache by text+speed per style) |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -93,7 +98,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0016 in `docs/adr/`. Most relevant now: 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0017 in `docs/adr/`. Most relevant now: 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -110,6 +115,9 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
   one) and rerun. The fakes send `Connection: close` (ureq reused closed connections). The
   driver's and app's output goes to `<out>/tauri-driver.log` (a "Connection refused" backtrace
   at startup is harmless: the driver retries).
+- **Audio in the e2e:** `apt-get install -y pulseaudio gstreamer1.0-tools`; the e2e starts a
+  PulseAudio null sink itself when none runs. Tauri raw responses (`ipc::Response`) arrive in
+  the page as a number array on Linux: `speech.ts` converts.
 - **Linux build prerequisites:**
   `apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev
   libayatana-appindicator3-dev librsvg2-dev fonts-noto-cjk webkit2gtk-driver xdotool imagemagick`,
@@ -142,8 +150,9 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    items, whether the level-drift check drops too much, prompt lengths for long texts. Check
    the bank fills as expected (Settings → AI shows counts; `item_bank` table). Ask the
    owner to report bad questions; they are stored with `reported = 1` in `test_items`.
-2. **Next feature (owner's order):** listening (TTS), then Italian (CILS) and Spanish
-   (DELE/SIELE). Ask the owner before starting; they may have new requests.
+2. **Next feature (owner's order):** JLPT listening questions in practice tests (ADR 0017
+   point 5: 即時応答 and 課題理解 first, AI scripts spoken by VOICEVOX speakers), then Italian
+   (CILS) and Spanish (DELE/SIELE). Ask the owner before starting; they may have new requests.
 3. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分,
    人気のない, この方) are guessed (user can fix them; `reading_fixes`); Sudachi splits some words
    oddly (一時的 → 一|時|的); the level check's `p_right` rates are assumptions (stored answers can

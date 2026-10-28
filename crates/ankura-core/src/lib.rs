@@ -22,6 +22,7 @@ pub mod reader;
 pub mod stats;
 pub mod store;
 pub mod tokenize;
+pub mod voicevox;
 
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +45,8 @@ pub enum Error {
     Dictionary(String),
     #[error("AI: {0}")]
     Llm(String),
+    #[error("speech: {0}")]
+    Tts(String),
     #[error("database: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("io: {0}")]

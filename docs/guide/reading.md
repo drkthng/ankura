@@ -65,6 +65,27 @@ Ankura checks the result and asks once more if it still has too many unknown wor
 simpler version with furigana on the words you don't know yet, and the English translation only
 when you click **Show translation**. This needs the AI ([AI setup](ai.md)).
 
+## Listening
+
+![The reader reading aloud: the current sentence highlighted, Pause and speed in the toolbar](../img/listening.png)
+
+**▶ Listen** in the toolbar (or **P**) reads the text aloud, sentence by sentence; the sentence
+being read is highlighted. **P** pauses and resumes, ⏹ stops, and the menu next to it sets the
+speed. In the word pop-up, 🔊 says the word, and **Listen from here** reads from its sentence.
+
+The voice is your computer's Japanese voice, or VOICEVOX when it's running:
+
+- **Your computer's voices** work without anything else. If Ankura finds none: on Windows,
+  Settings → Time & language → Speech → Add voices → Japanese; on a Mac, System Settings →
+  Accessibility → Spoken Content → System voice → Manage voices.
+- **VOICEVOX** is a free program with much more natural Japanese voices
+  (voicevox.hiroshiba.jp). Install it and start it; Ankura finds it by itself. Pick a voice in
+  Settings → Listening. Ankura keeps every sentence it has had spoken, so a text you hear again
+  plays at once.
+
+The voice reads the text as written and works out the readings itself; now and then it reads a
+word differently from the furigana.
+
 ## What Ankura counts
 
 A paragraph counts as read after about three seconds on screen. Ankura then records that you saw

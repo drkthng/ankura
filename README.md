@@ -16,6 +16,8 @@ notes.
   Anki, or not in Anki at all are coloured, so you see at a glance how hard a text is. Furigana
   appear only on words you don't know yet, and a wrong reading is fixed with two clicks.
   → [Reading](docs/guide/reading.md)
+- **Listen while you read.** The reader reads texts aloud sentence by sentence, with the
+  computer's Japanese voice or the free VOICEVOX voices. → [Listening](docs/guide/reading.md#listening)
 - **Works with any Anki collection.** Point Ankura at the field that holds the word, even the bold
   word in a sentence card. It reads your cards' intervals (or FSRS memory) and knows which words
   are solid and which are fading. Ankura only adds

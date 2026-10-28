@@ -148,10 +148,15 @@ def main():
         ANKURA_LLM_URL="http://127.0.0.1:8766",
         ANKURA_API_KEY="test",
     )
+    # Audio for the listening test: a PulseAudio server with a null sink, if PulseAudio is there.
+    if subprocess.run(["pactl", "info"], capture_output=True).returncode != 0 and subprocess.run(["which", "pulseaudio"], capture_output=True).returncode == 0:
+        subprocess.run(["pulseaudio", "-D", "--exit-idle-time=-1", "-n", "--load=module-null-sink sink_name=null", "--load=module-native-protocol-unix"], capture_output=True)
+    audio = subprocess.run(["pactl", "info"], capture_output=True).returncode == 0
     procs = [
         subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1280x860x24"], stderr=subprocess.DEVNULL),
         subprocess.Popen([sys.executable, str(HERE / "fake_ankiconnect.py"), "8765"], stdout=subprocess.DEVNULL),
         subprocess.Popen([sys.executable, str(HERE / "fake_llm.py"), "8766"], stdout=subprocess.DEVNULL),
+        subprocess.Popen([sys.executable, str(HERE / "fake_voicevox.py"), "50021"], stdout=subprocess.DEVNULL),
     ]
     time.sleep(1)
     # The app's and the driver's output, for when the session drops.
@@ -159,6 +164,7 @@ def main():
     procs.append(subprocess.Popen(["tauri-driver", "--port", "4444"], env=env, stdout=driver_log, stderr=subprocess.STDOUT))
     wait_port(8765)
     wait_port(8766)
+    wait_port(50021)
     wait_port(4444)
     d = None
     try:
@@ -250,8 +256,27 @@ def main():
         assert after != before
         d.shot(out / "06-after-mark.png")
 
+        # Listening (ADR 0017): VOICEVOX (the fake) reads the text sentence by sentence, the
+        # current sentence highlighted; the audio is kept on disk.
+        d.click("//button[contains(normalize-space(), 'Listen')]")
+        d.find("//*[contains(@class,'speaking')]", timeout=30)
+        voice = d.text("//p[starts-with(normalize-space(), 'Voice:')]")
+        d.shot(out / "06b-listening.png")
+        for _ in range(120):  # silent clips play to the end (or the webview can't play audio here)
+            state = d.js("return document.querySelector('.reader-page .error')?.textContent || (document.querySelector('.speaking') ? 'playing' : 'done')")
+            if state != "playing":
+                break
+            time.sleep(0.25)
+        spoken = json.loads(OPENER.open("http://127.0.0.1:50021/spoken").read())
+        cached = list(Path(data).glob("*/audio/voicevox/2/*.wav"))
+        print("listening:", voice, "| end:", state, "| spoken:", len(spoken), spoken[:2], "| cached:", len(cached))
+        assert voice == "Voice: VOICEVOX:四国めたん" and spoken and spoken[0] in STORY.replace("\n", "") and cached, (voice, spoken, cached)
+        if audio:  # with a sound server the whole text plays, sentence by sentence
+            assert state == "done" and len(spoken) >= 6, (state, spoken)
+        d.js("[...document.querySelectorAll('button')].find(b => b.title === 'Stop')?.click()")
+
         # Furigana everywhere, then vertical text.
-        d.js("const s = document.querySelector('select'); s.value = 'all'; s.dispatchEvent(new Event('change'));")
+        d.js("const s = document.querySelector('.controls select'); s.value = 'all'; s.dispatchEvent(new Event('change'));")
         time.sleep(0.4)
         d.shot(out / "07-furigana-all.png")
         d.click("//label[contains(., 'Vertical')]/input")

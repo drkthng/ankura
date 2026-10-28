@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
+  import * as speech from "../lib/speech";
   import { api, type AiMode, type AiSettings, type CardOptions, type MemoryStats, type Provider, type Status } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
@@ -103,6 +104,41 @@
     cardsMessage = "Saved.";
   }
 
+  // --- listening (ADR 0017) ---
+  let sp = $state<speech.SpeechSettings | null>(null);
+  let sysVoices = $state<{ name: string; local: boolean }[]>([]);
+  let vvSpeakers = $state<speech.VoicevoxSpeaker[] | null>(null);
+  let checkingVv = $state(false);
+  let speechMsg = $state("");
+  const vvStyles = $derived((vvSpeakers ?? []).flatMap((x) => x.styles.map((st) => ({ id: st.id, label: `${x.name} (${st.name})` }))));
+  async function loadSpeech() {
+    sp = await speech.load();
+    sysVoices = (await speech.systemVoices()).map((v) => ({ name: v.name, local: v.localService }));
+    await checkVoicevox();
+  }
+  async function checkVoicevox() {
+    checkingVv = true;
+    vvSpeakers = await speech.voicevoxSpeakers();
+    checkingVv = false;
+  }
+  async function saveSpeech(key: string, value: string) {
+    speechMsg = "";
+    await api.setSetting(key, value);
+    sp = await speech.load();
+    if (key === "voicevox_url") await checkVoicevox();
+  }
+  async function testVoice() {
+    speechMsg = "";
+    try {
+      const v = await speech.current();
+      speechMsg = `Speaking with ${v.label}…`;
+      await speech.say("こんにちは。今日はいい天気ですね。");
+      speechMsg = "";
+    } catch (e) {
+      speechMsg = String(e).replace(/^Error: /, "");
+    }
+  }
+
   let memory = $state<MemoryStats | null>(null);
   const savedRequests = $derived(
     memory ? (memory.reused.simplify ?? 0) + (memory.reused.card_sentence ?? 0) : 0,
@@ -115,6 +151,7 @@
     loadAi().catch((e) => (error = String(e)));
     loadCards();
     api.memoryStats().then((m) => (memory = m)).catch(() => {});
+    loadSpeech().catch((e) => (speechMsg = String(e)));
   });
   async function switchProvider() {
     await api.setSetting("ai_provider", provider);
@@ -266,6 +303,62 @@
   </section>
 
   <section class="card">
+    <h2>Listening</h2>
+    <p class="muted small">
+      The reader can read texts aloud. Ankura uses your computer's Japanese voices, or VOICEVOX: a free program with much
+      more natural Japanese voices that you start next to Ankura.
+    </p>
+    {#if sp}
+      <div class="row">
+        <span>Voice from</span>
+        {#each [["auto", "VOICEVOX when it runs, else this computer"], ["system", "This computer"], ["voicevox", "VOICEVOX only"]] as [v, label]}
+          <label class="radio"><input type="radio" name="tts" checked={sp.engine === v} onchange={() => saveSpeech("tts_engine", v)} /> {label}</label>
+        {/each}
+      </div>
+      {#if sp.engine !== "voicevox"}
+        <div class="row">
+          <span>Computer voice</span>
+          {#if sysVoices.length}
+            <select value={sp.system_voice} onchange={(e) => saveSpeech("tts_system_voice", e.currentTarget.value)}>
+              <option value="">Automatic</option>
+              {#each sysVoices as v}<option value={v.name}>{v.name}{v.local ? "" : " (online)"}</option>{/each}
+            </select>
+          {:else}
+            <span class="muted small">
+              No Japanese voice found. On Windows: Settings → Time &amp; language → Speech → Add voices → Japanese. On a Mac:
+              System Settings → Accessibility → Spoken Content → System voice → Manage voices.
+            </span>
+          {/if}
+        </div>
+      {/if}
+      {#if sp.engine !== "system"}
+        <div class="row">
+          <span>VOICEVOX</span>
+          <input value={sp.voicevox_url} size="26" onchange={(e) => saveSpeech("voicevox_url", e.currentTarget.value)} />
+          <button class="ghost" onclick={checkVoicevox} disabled={checkingVv}>{checkingVv ? "Checking…" : "Check again"}</button>
+          {#if vvSpeakers}
+            <span class="muted small">running, {vvStyles.length} voices</span>
+          {:else if !checkingVv}
+            <span class="muted small">not running. Get it free at voicevox.hiroshiba.jp, start it, then check again.</span>
+          {/if}
+        </div>
+        {#if vvSpeakers}
+          <div class="row">
+            <span>VOICEVOX voice</span>
+            <select value={String(sp.style ?? vvStyles[0]?.id ?? "")} onchange={(e) => saveSpeech("tts_style", e.currentTarget.value)}>
+              {#each vvStyles as st}<option value={String(st.id)}>{st.label}</option>{/each}
+            </select>
+          </div>
+        {/if}
+      {/if}
+      <div class="row">
+        <button onclick={testVoice}>Test the voice</button>
+        {#if speechMsg}<span class="muted small">{speechMsg}</span>{/if}
+      </div>
+    {/if}
+  </section>
+
+  <section class="card">
     <h2>Anki cards</h2>
     <p class="muted">
       Cards you make while reading go into this note type and deck. Ankura fills them in like your newest notes of
@@ -352,5 +445,10 @@
   }
   .hidden {
     display: none;
+  }
+  .radio {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: center;
   }
 </style>
