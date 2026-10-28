@@ -42,4 +42,9 @@ or a paid cloud voice.
   guesses and corrected readings reach it. On by default; setting `tts_readings`. Kana-only words
   can lose a little pitch-accent quality; Sudachi's own mistakes become audible, so common ones
   are fixed in the tokenizer (何 なに/なん by the next word, 明日 あした).
+- **Update 2 (same day, owner's report: と山崎は言った read as "to yamazaki haitta"):** all-kana
+  text loses the word boundaries kanji give the voice (は+いった heard as 入った). Now only names,
+  words not on the N5-N3 lists, and words with a corrected reading are replaced, in katakana so
+  they don't run into the hiragana around them (とヤマザキは言った, 彼はクチゴモッた). Common
+  words keep their kanji.
 - Audio files accumulate; nothing cleans them up yet (a sentence is about 100-300 KB).

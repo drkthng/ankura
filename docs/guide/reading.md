@@ -83,8 +83,11 @@ The voice is your computer's Japanese voice, or VOICEVOX when it's running:
   Settings → Listening. Ankura keeps every sentence it has had spoken, so a text you hear again
   plays at once.
 
-The voice says words the way the furigana shows them, including readings you corrected
-([Wrong furigana?](#wrong-furigana)): a word it mispronounces is fixed by correcting its reading.
+Where a voice is likely to guess wrong, Ankura tells it the reading the furigana shows: for
+names, for less common words (beyond the JLPT N3 lists), and for every word whose reading you
+corrected ([Wrong furigana?](#wrong-furigana)). So a word the voice mispronounces is fixed by
+correcting its reading. Common words keep their kanji, which helps the voice see where words
+start (と山崎は言った, not はいった).
 To let the voice work out readings on its own instead, untick *Read words as the furigana shows
 them* in Settings → Listening.
 

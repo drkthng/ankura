@@ -51,6 +51,13 @@ pub fn to_hiragana(s: &str) -> String {
         .collect()
 }
 
+/// Hiragana to katakana; everything else is kept.
+pub fn to_katakana(s: &str) -> String {
+    s.chars()
+        .map(|c| if ('ぁ'..='ゖ').contains(&c) || c == 'ゝ' || c == 'ゞ' { char::from_u32(c as u32 + 0x60).unwrap_or(c) } else { c })
+        .collect()
+}
+
 pub fn is_all_kana(s: &str) -> bool {
     !s.is_empty() && s.chars().all(is_kana)
 }

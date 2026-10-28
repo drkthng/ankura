@@ -286,15 +286,35 @@ pub fn analyze_text(store: &Store, tok: &dyn Tokenizer, text: &str, text_id: Opt
     Ok(ReaderDoc { paragraphs, coverage: cov })
 }
 
-/// The text as a voice should say it (ADR 0017): every word with kanji replaced by the reading
-/// the reader shows above it (Sudachi's reading, counters, and the learner's corrections), so the
-/// voice doesn't guess (口籠もった is くちごもった, not くちかごもった). Kana and punctuation stay.
+/// Words of the N5-N3 lists: a voice reads these right from their kanji.
+static EASY: std::sync::LazyLock<HashSet<&'static str>> = std::sync::LazyLock::new(|| {
+    crate::proficiency::VOCAB.iter().filter(|w| w.level >= 3).map(|w| w.expression.as_str()).collect()
+});
+
+/// The text as a voice should say it (ADR 0017). Kanji stay where a voice reads them right and
+/// where they show it how the sentence splits (と山崎は言った: written in kana, は+いった is heard
+/// as 入った). Replaced by the reading the reader shows, in katakana so it doesn't run into the
+/// kana around it: names, words not on the N5-N3 lists (口籠もった → クチゴモッた), and words
+/// whose reading the learner corrected.
 pub fn spoken(store: &Store, tok: &dyn Tokenizer, text: &str, text_id: Option<&str>) -> Result<String> {
+    let fixes = store.reading_fixes(tok.lang(), text_id)?;
     let doc = analyze_text(store, tok, text, text_id)?;
     Ok(doc
         .paragraphs
         .iter()
-        .map(|p| p.iter().flat_map(|t| t.segments.iter()).map(|g| g.ruby.as_deref().unwrap_or(&g.text)).collect::<String>())
+        .map(|p| {
+            p.iter()
+                .map(|t| {
+                    let common = EASY.contains(t.dictionary_form.as_str()) || t.key.as_ref().is_some_and(|k| EASY.contains(k.lemma.as_str()));
+                    let replace = t.has_kanji && (t.kind == TokenKind::Name || !common || fixes.contains_key(&t.surface));
+                    if replace {
+                        crate::kana::to_katakana(&t.segments.iter().map(|g| g.ruby.as_deref().unwrap_or(&g.text)).collect::<String>())
+                    } else {
+                        t.surface.clone()
+                    }
+                })
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n"))
 }
@@ -413,9 +433,11 @@ mod tests {
     fn spoken_form_uses_the_shown_readings() {
         let Some(t) = sudachi() else { return };
         let s = Store::open_in_memory().unwrap();
-        assert_eq!(spoken(&s, t, "彼は口籠もった。\n猫が三匹いる。", None).unwrap(), "かれはくちごもった。\nねこがさんびきいる。");
+        // Rare words and names in katakana; common words keep their kanji, so は stays a particle.
+        assert_eq!(spoken(&s, t, "彼は口籠もった。", None).unwrap(), "彼はクチゴモッた。");
+        assert_eq!(spoken(&s, t, "と山崎は言った。", None).unwrap(), "とヤマザキは言った。");
         // A corrected reading is what the voice says, too.
         s.set_reading_fix("ja", "人気", Some("ひとけ"), None).unwrap();
-        assert_eq!(spoken(&s, t, "人気のない道", None).unwrap(), "ひとけのないみち");
+        assert_eq!(spoken(&s, t, "人気のない道", None).unwrap(), "ヒトケのない道");
     }
 }
