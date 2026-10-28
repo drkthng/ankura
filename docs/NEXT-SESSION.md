@@ -18,6 +18,9 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   (`voicevox.rs`, audio cached under `<data>/audio/voicevox`), sentence by sentence with
   highlighting; `src/lib/speech.ts`; Settings → Listening. Tested with a fake VOICEVOX
   (`tools/dev/fake_voicevox.py`) and a PulseAudio null sink in the e2e.
+- **JLPT listening questions** (ADR 0018, 2026-10-28): optional 聴解 part in practice tests
+  (`Mondai::TaskListening` … `QuickResponse`, `Item.script`, `listening_items`), roles in
+  `speech.ts` (narrator / woman / man), full scoring with listening.
 - **AI output kept and reused** (ADR 0016, owner's request 2026-10-27): every request logged
   (`ai_log`), question bank for practice tests and level check (`item_bank`; practice tests
   choose bank first / half new / all new, optionally repeating seen questions), cached simpler
@@ -31,7 +34,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   stats over days, interests, reading fixes.
 - Last commit `bee00de` on `main`. Latest Windows installer given to the owner (kanji setup fix):
   https://github.com/drkthng/ankura/actions/runs/40498469483/artifacts/12731158630
-- Tests: 92 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+- Tests: 93 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
   (`tools/dev/e2e_smoke.py`) covering every screen. All passing.
 - **User docs:** `README.md` links one guide per feature in `docs/guide/`; update the matching
   guide with every user-facing change (CLAUDE.md says so too). Build docs: `docs/DEVELOPING.md`.
@@ -98,7 +101,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0017 in `docs/adr/`. Most relevant now: 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0018 in `docs/adr/`. Most relevant now: 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -109,6 +112,8 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
   `gh api repos/drkthng/ankura/actions/runs?head_sha=$(git rev-parse HEAD)`. Artifact link for the
   owner: `https://github.com/drkthng/ankura/actions/runs/<run_id>/artifacts/<artifact_id>` (ids
   from `gh api repos/drkthng/ankura/actions/runs/<run_id>/artifacts`).
+- **E2E pop-up timing:** the word pop-up moves when a panel opens inside it (kanji, reading
+  fixer); the e2e waits 0.4 s before clicking inside it.
 - **E2E flakiness:** WebKitWebDriver sometimes drops the session ("Remote end closed connection"),
   usually right after the copy & paste flow writes to the clipboard (WebKitGTK under Xvfb?
   unverified; Linux only, the Windows app uses WebView2); kill leftovers (`pkill -x Xvfb ankura tauri-driver WebKitWebDriver` one by
@@ -150,9 +155,10 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    items, whether the level-drift check drops too much, prompt lengths for long texts. Check
    the bank fills as expected (Settings → AI shows counts; `item_bank` table). Ask the
    owner to report bad questions; they are stored with `reported = 1` in `test_items`.
-2. **Next feature (owner's order):** JLPT listening questions in practice tests (ADR 0017
-   point 5: 即時応答 and 課題理解 first, AI scripts spoken by VOICEVOX speakers), then Italian
-   (CILS) and Spanish (DELE/SIELE). Ask the owner before starting; they may have new requests.
+2. **Next feature (owner's order):** Italian (CILS) and Spanish (DELE/SIELE) tests (needs the
+   Italian/Spanish tokenizer and lemmatizer of ADR 0001 first). Smaller follow-ups: 発話表現 and
+   統合理解 listening types, listening in the level check, passing corrected readings to the
+   voice, cleaning up old audio files. Ask the owner which comes first. Ask the owner before starting; they may have new requests.
 3. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分,
    人気のない, この方) are guessed (user can fix them; `reading_fixes`); Sudachi splits some words
    oddly (一時的 → 一|時|的); the level check's `p_right` rates are assumptions (stored answers can

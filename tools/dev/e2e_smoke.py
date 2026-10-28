@@ -384,6 +384,7 @@ def main():
         ruby = "return [...document.querySelectorAll('.tok')].find(e => e.textContent.startsWith('毎朝'))?.querySelector('rt')?.textContent"
         d.click("//span[contains(@class,'tok') and starts-with(normalize-space(.), '毎朝')]")
         d.click("//div[@role='dialog']//button[contains(@class,'fix')]")
+        time.sleep(0.4)  # the pop-up moves to fit the reading fixer; a click mid-move hits another chip
         d.click("//div[@role='dialog']//section[contains(@class,'fixer')]//button[normalize-space()='まいちょう']")
         d.click("//div[@role='dialog']//button[normalize-space()='Use this reading']")
         for _ in range(20):
@@ -393,6 +394,7 @@ def main():
         assert d.js(ruby) == "まいちょう", d.js(ruby)
         d.click("//span[contains(@class,'tok') and starts-with(normalize-space(.), '毎朝')]")
         d.click("//div[@role='dialog']//button[contains(@class,'fix')]")
+        time.sleep(0.4)
         d.click("//div[@role='dialog']//button[normalize-space()='Reset']")
         for _ in range(20):
             if d.js(ruby) == "まいあさ":
@@ -523,10 +525,12 @@ def main():
         d.click("//nav//button[normalize-space()='Practice test']")
         d.click("//button[normalize-space()='N5']")
         d.click("//button[starts-with(normalize-space(), 'Half')]")
+        d.click("//label[contains(., 'Include 聴解')]/input")  # listening (ADR 0018)
         d.click("//button[normalize-space()='Prepare the test']")
         d.find("//nav[contains(@class,'grid')]", timeout=120)
         d.shot(out / "15c-practice-question.png")
         parts = []
+        shot_listening = False
         for _ in range(600):
             state = d.js(
                 "if (document.querySelector('.headline')) return 'done';"
@@ -538,6 +542,10 @@ def main():
                 "if (hand) { const p = document.querySelector('header.bar strong')?.textContent; hand.click(); return 'hand:' + p; }"
                 "return 'wait';"
             )
+            if state == "pick" and not shot_listening and d.js("return !!document.querySelector('.player')"):
+                shot_listening = True
+                time.sleep(0.5)
+                d.shot(out / "15c2-practice-listening.png")
             if state == "pick":
                 time.sleep(0.05)
                 d.js("document.querySelector('.options button')?.click()")
@@ -547,11 +555,14 @@ def main():
                 break
             time.sleep(0.1)
         print("practice parts handed in:", parts)
-        assert len(parts) == 2, parts
+        assert len(parts) == 3 and parts[2].endswith("聴解"), parts
+        spoken = json.loads(OPENER.open("http://127.0.0.1:50021/spoken").read())
+        print("listening spoken:", [x for x in spoken if "パン" in x or "映画" in x or "話しています" in x][:3])
+        assert any("話しています" in x for x in spoken), spoken[-5:]
         verdict = d.text("//p[contains(@class,'headline')]")
         sections = d.js("return [...document.querySelectorAll('.sec strong')].map(e => e.textContent)")
         print("practice result:", verdict, sections)
-        assert verdict in ("Likely pass", "Borderline", "Not yet") and len(sections) == 1 and sections[0].endswith("/120"), (verdict, sections)
+        assert verdict in ("Likely pass", "Borderline", "Not yet") and len(sections) == 2 and sections[0].endswith("/120") and sections[1].endswith("/60"), (verdict, sections)
         d.shot(out / "15d-practice-result.png")
         d.click("//button[normalize-space()='Review answers']")
         d.find("//section[contains(@class,'rev')]")

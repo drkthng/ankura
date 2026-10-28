@@ -321,7 +321,7 @@ mod tests {
             let grammar = json!({"id": "g1", "section": "grammar1", "level": 3, "prompt": "文（　）", "options": ["a", "b", "c", "d"], "answer": 1});
             let vocab_id = &lc.vocab[0].id;
             s.conn.execute("INSERT INTO test_items (test_id, item_id, section, level, item) VALUES (?1, 'g1', 'grammar1', 3, ?2)", params![lc.id, grammar.to_string()]).unwrap();
-            let p = crate::practice::create(&s, 4, true, false, 0, false).unwrap();
+            let p = crate::practice::create(&s, 4, true, false, 0, false, false).unwrap();
             let item = json!({"id": "p1", "mondai": "context", "level": 4, "part": 0, "prompt": "（　）", "options": ["a", "b", "c", "d"], "answer": 0});
             s.conn.execute("INSERT INTO test_items (test_id, item_id, section, level, item, reported) VALUES (?1, 'p1', 'context', 4, ?2, 1)", params![p, item.to_string()]).unwrap();
             s.conn.execute_batch("DROP TABLE ai_log; DROP TABLE item_bank; DROP TABLE ai_cache; DROP TABLE ai_reuse; PRAGMA user_version = 11;").unwrap();

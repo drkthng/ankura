@@ -808,7 +808,8 @@ async fn practice_intro(app: AppHandle) -> CmdResult<PracticeIntro> {
             suggested: practice::suggested_level(&store).map_err(err)?,
             credit: proficiency::CREDIT,
             tests: practice::list(&store).map_err(err)?,
-            layouts: (1..=5).rev().map(|l| (l, practice::layout(l, false))).collect(),
+            // With the listening part (named 聴解); the screen leaves it out when it isn't chosen.
+            layouts: (1..=5).rev().map(|l| (l, practice::layout(l, false, true))).collect(),
             bank: ankura_core::memory::bank_counts(&store, "practice").map_err(err)?,
         })
     })
@@ -816,14 +817,23 @@ async fn practice_intro(app: AppHandle) -> CmdResult<PracticeIntro> {
 }
 
 #[tauri::command]
-async fn practice_create(app: AppHandle, level: u8, half: bool, timed: bool, reuse: u8, repeat_seen: bool) -> CmdResult<String> {
-    blocking(app, move |s| practice::create(&s.store(), level, half, timed, reuse, repeat_seen).map_err(err)).await
+#[allow(clippy::too_many_arguments)]
+async fn practice_create(
+    app: AppHandle,
+    level: u8,
+    half: bool,
+    timed: bool,
+    reuse: u8,
+    repeat_seen: bool,
+    listening: bool,
+) -> CmdResult<String> {
+    blocking(app, move |s| practice::create(&s.store(), level, half, timed, reuse, repeat_seen, listening).map_err(err)).await
 }
 
 /// How many questions a new test would take from the bank and how many the AI would write.
 #[tauri::command]
-async fn practice_plan(app: AppHandle, level: u8, half: bool, reuse: u8, repeat_seen: bool) -> CmdResult<practice::Plan> {
-    blocking(app, move |s| practice::plan(&s.store(), level, half, reuse, repeat_seen).map_err(err)).await
+async fn practice_plan(app: AppHandle, level: u8, half: bool, reuse: u8, repeat_seen: bool, listening: bool) -> CmdResult<practice::Plan> {
+    blocking(app, move |s| practice::plan(&s.store(), level, half, reuse, repeat_seen, listening).map_err(err)).await
 }
 
 /// What the AI has produced and how often stored answers were reused (ADR 0016).

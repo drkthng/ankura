@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::kana::is_kanji;
 use crate::llm::Llm;
-use crate::proficiency::{ListWord, Mc, Rng, VOCAB, distractors, mc_schema, numbered, shuffled, solve, valid};
+use crate::proficiency::{ListWord, Mc, Rng, VOCAB, distractors, mc_schema, numbered, shuffled, solve, valid, valid_n};
 use crate::store::{Store, now_ms};
 use crate::tokenize::Tokenizer;
 use crate::{Error, Result};
@@ -39,6 +39,11 @@ pub enum Mondai {
     Integrated,
     Argument,
     InfoSearch,
+    // Listening (聴解, ADR 0018).
+    TaskListening,
+    PointListening,
+    GistListening,
+    QuickResponse,
 }
 
 /// The score-report area a question type belongs to.
@@ -47,6 +52,7 @@ pub enum Area {
     Vocab,
     Grammar,
     Reading,
+    Listening,
 }
 
 impl Mondai {
@@ -67,6 +73,10 @@ impl Mondai {
             Mondai::Integrated => "統合理解",
             Mondai::Argument => "主張理解（長文）",
             Mondai::InfoSearch => "情報検索",
+            Mondai::TaskListening => "課題理解",
+            Mondai::PointListening => "ポイント理解",
+            Mondai::GistListening => "概要理解",
+            Mondai::QuickResponse => "即時応答",
         }
     }
 
@@ -84,6 +94,9 @@ impl Mondai {
             Mondai::TextGrammar => "次の文章を読んで、文章全体の内容を考えて、［ ］の中に入る最もよいものを、１・２・３・４から一つえらんでください。",
             Mondai::Integrated => "次のAとBの文章を読んで、後の問いに対する答えとして最もよいものを、１・２・３・４から一つえらんでください。",
             Mondai::InfoSearch => "次の案内を見て、下の質問に答えてください。答えは、１・２・３・４から最もよいものを一つえらんでください。",
+            Mondai::TaskListening | Mondai::PointListening => "まず質問を聞いてください。それから話を聞いて、１から４の中から、最もよいものを一つえらんでください。",
+            Mondai::GistListening => "質問はありません。まず話を聞いてください。それから、質問と選択肢を聞いて、１から４の中から、最もよいものを一つえらんでください。",
+            Mondai::QuickResponse => "まず文を聞いてください。それから、その返事を聞いて、１から３の中から、最もよいものを一つえらんでください。",
             _ => "次の文章を読んで、質問に答えてください。答えは、１・２・３・４から最もよいものを一つえらんでください。",
         }
     }
@@ -104,6 +117,10 @@ impl Mondai {
             Mondai::Integrated => "Read texts A and B and answer.",
             Mondai::Argument => "Read the text and answer about the writer's view.",
             Mondai::InfoSearch => "Find the information the question asks for.",
+            Mondai::TaskListening => "Listen: what will the person do next?",
+            Mondai::PointListening => "Listen for the point the question asks about (a reason, a feeling, a detail).",
+            Mondai::GistListening => "Listen to the whole talk; the question and the options are only spoken.",
+            Mondai::QuickResponse => "Listen to the line and choose the best reply; the replies are only spoken.",
         }
     }
 
@@ -113,12 +130,22 @@ impl Mondai {
                 Area::Vocab
             }
             Mondai::GrammarForm | Mondai::SentenceOrder | Mondai::TextGrammar => Area::Grammar,
+            Mondai::TaskListening | Mondai::PointListening | Mondai::GistListening | Mondai::QuickResponse => Area::Listening,
             _ => Area::Reading,
         }
     }
 
     fn passage_based(self) -> bool {
         matches!(self, Mondai::TextGrammar) || self.area() == Area::Reading
+    }
+
+    /// Options are only spoken (概要理解, 即時応答): the sheet shows their numbers.
+    pub fn spoken_options(self) -> bool {
+        matches!(self, Mondai::GistListening | Mondai::QuickResponse)
+    }
+
+    fn options(self) -> usize {
+        if self == Mondai::QuickResponse { 3 } else { 4 }
     }
 
     /// Questions per passage, given how many questions of this type the test has.
@@ -141,7 +168,7 @@ pub struct PartSpec {
 
 /// The test's parts for a level (5 = N5 … 1 = N1): the JLPT's approximate item counts (目安)
 /// and minutes, without listening; `half` halves items (at least one) and time.
-pub fn layout(level: u8, half: bool) -> Vec<PartSpec> {
+pub fn layout(level: u8, half: bool, listening: bool) -> Vec<PartSpec> {
     use Mondai::*;
     let parts: Vec<(&'static str, u32, Vec<(Mondai, usize)>)> = match level {
         5 => vec![
@@ -216,6 +243,18 @@ pub fn layout(level: u8, half: bool) -> Vec<PartSpec> {
             ],
         )],
     };
+    let mut parts = parts;
+    if listening {
+        // 聴解 with its official minutes; 発話表現 (pictures) and 統合理解 aren't written yet.
+        let (minutes, l): (u32, Vec<(Mondai, usize)>) = match level {
+            5 => (30, vec![(TaskListening, 7), (PointListening, 6), (QuickResponse, 6)]),
+            4 => (35, vec![(TaskListening, 8), (PointListening, 7), (QuickResponse, 8)]),
+            3 => (40, vec![(TaskListening, 6), (PointListening, 6), (GistListening, 3), (QuickResponse, 9)]),
+            2 => (50, vec![(TaskListening, 5), (PointListening, 6), (GistListening, 5), (QuickResponse, 12)]),
+            _ => (55, vec![(TaskListening, 6), (PointListening, 7), (GistListening, 6), (QuickResponse, 14)]),
+        };
+        parts.push(("聴解", minutes, l));
+    }
     parts
         .into_iter()
         .map(|(name, minutes, mondai)| PartSpec {
@@ -227,6 +266,43 @@ pub fn layout(level: u8, half: bool) -> Vec<PartSpec> {
 }
 
 // --- items ---
+
+/// One spoken line of a listening question.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Line {
+    /// 'woman', 'man' or 'narrator'.
+    pub speaker: String,
+    pub text: String,
+}
+
+/// What a listening question plays: the narrator's introduction, the talk, the question.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Script {
+    pub intro: String,
+    pub lines: Vec<Line>,
+    pub question: String,
+}
+
+impl Script {
+    fn transcript(&self) -> String {
+        let mut t = String::new();
+        if !self.intro.is_empty() {
+            t.push_str(&format!("（ナレーター）{}\n", self.intro));
+        }
+        for l in &self.lines {
+            let who = match l.speaker.as_str() {
+                "woman" => "女",
+                "man" => "男",
+                _ => "ナレーター",
+            };
+            t.push_str(&format!("（{who}）{}\n", l.text));
+        }
+        if !self.question.is_empty() {
+            t.push_str(&format!("（ナレーター）{}\n", self.question));
+        }
+        t
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WordRef {
@@ -260,6 +336,9 @@ pub struct Item {
     /// The question's id in the bank (ADR 0016); several tests can use one question.
     #[serde(default)]
     pub origin: Option<String>,
+    /// For listening questions: what is played (ADR 0018).
+    #[serde(default)]
+    pub script: Option<Script>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,6 +350,9 @@ pub struct ItemView {
     pub options: Vec<String>,
     pub passage: Option<String>,
     pub group: Option<String>,
+    /// Listening: what to play; options are numbers only when `spoken_options`.
+    pub script: Option<Script>,
+    pub spoken_options: bool,
 }
 
 fn new_item(mondai: Mondai, level: u8, prompt: String, options: Vec<String>, answer: usize) -> Item {
@@ -288,6 +370,7 @@ fn new_item(mondai: Mondai, level: u8, prompt: String, options: Vec<String>, ans
         explanation: String::new(),
         word: None,
         origin: None,
+        script: None,
     }
 }
 
@@ -402,6 +485,7 @@ writer's claim and reasoning. text2 = empty.",
         Mondai::InfoSearch => "Type: 情報検索. An information text (an advert, a notice, a timetable, a price list or a \
 guide with conditions), laid out with line breaks; each question gives a situation with conditions, and the reader \
 finds the information that matches. text2 = empty.",
+        m => listening_spec(m),
     }
 }
 
@@ -803,8 +887,158 @@ fn take(items: Vec<Item>, need: usize) -> (Vec<Item>, Vec<Item>) {
     (taken, rest)
 }
 
+const LISTENING_SYSTEM: &str = "You write listening questions for a JLPT-style practice test; a speech \
+engine will speak them. Write your own; never copy official JLPT questions or prep books. Spoken Japanese must be \
+natural and at the given level (vocabulary, grammar), as people really talk, with speech-like fillers only where \
+natural. Speakers are 'woman' and 'man'. Write numbers and times so they are read unambiguously. Exactly one option is \
+right; the others are plausible for a learner who misheard or missed a detail. Each item has a short explanation in \
+English: which line gives the answer and why the others are wrong.";
+
+fn listening_spec(m: Mondai) -> &'static str {
+    match m {
+        Mondai::TaskListening => "Type: 課題理解. intro: the narrator's setting and question, such as \
+「女の人と男の人が話しています。男の人はこのあと何をしますか。」. lines: a conversation of 6-12 lines about a task \
+(what to buy, where to go, what to prepare), where plans change once so the listener must follow to the end. \
+question: the narrator's question again. options: four short written answers (actions).",
+        Mondai::PointListening => "Type: ポイント理解. intro: the narrator's setting and question, such as \
+「男の人と女の人が話しています。女の人はどうして遅れましたか。」. lines: a conversation of 6-12 lines; the answer \
+(a reason, a feeling, a detail) comes up after a few other candidates. question: the narrator's question again. \
+options: four short written answers.",
+        Mondai::GistListening => "Type: 概要理解. intro: the narrator's setting only, such as \
+「ラジオで男の人が話しています。」 (no question). lines: one speaker's talk of 150-300 characters (a radio piece, \
+a speech, a message). question: the narrator's question about the main point or the speaker's view. options: four \
+answers, each one sentence (they are spoken, not shown).",
+        Mondai::QuickResponse => "Type: 即時応答. intro and question: empty. lines: exactly one short line by \
+'woman' or 'man' (a question, a request, a remark). options: three short replies by the other speaker; only one is a \
+natural reply. They are spoken, not shown.",
+        _ => "",
+    }
+}
+
+fn listening_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "listening_items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "intro": {"type": "string"},
+                        "lines": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"speaker": {"type": "string", "enum": ["woman", "man"]}, "text": {"type": "string"}},
+                                "required": ["speaker", "text"],
+                                "additionalProperties": false
+                            }
+                        },
+                        "question": {"type": "string"},
+                        "options": {"type": "array", "items": {"type": "string"}},
+                        "answer": {"type": "integer"},
+                        "explanation": {"type": "string"}
+                    },
+                    "required": ["intro", "lines", "question", "options", "answer", "explanation"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["listening_items"],
+        "additionalProperties": false
+    })
+}
+
+#[derive(Deserialize)]
+struct RawListening {
+    intro: String,
+    lines: Vec<Line>,
+    question: String,
+    options: Vec<String>,
+    answer: usize,
+    explanation: String,
+}
+
+/// 聴解 (ADR 0018): a script with its question. The check answers from the transcript; 課題理解
+/// and ポイント理解 questions it can answer without the talk are dropped.
+fn listening_items(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Result<Vec<Item>> {
+    let m = job.mondai;
+    let mut out: Vec<Item> = Vec::new();
+    for _round in 0..2 {
+        let missing = job.need.saturating_sub(out.len());
+        if missing == 0 {
+            break;
+        }
+        let ask = missing + missing.div_ceil(3) + 1;
+        let prompt = format!("Level: N{}\n{}\nNumber of items: {ask}\n", job.level, listening_spec(m));
+        let raw: Vec<RawListening> = parse(&llm.json(LISTENING_SYSTEM, &prompt, &listening_schema())?, "listening_items")?;
+        let mut made: Vec<Item> = Vec::new();
+        for r in raw {
+            let lines: Vec<Line> = r
+                .lines
+                .into_iter()
+                .map(|l| Line { speaker: if l.speaker == "man" { "man".into() } else { "woman".into() }, text: l.text.trim().to_string() })
+                .filter(|l| !l.text.is_empty())
+                .collect();
+            let options: Vec<String> = r.options.iter().map(|o| o.trim().to_string()).collect();
+            let question = r.question.trim().to_string();
+            let shown = if m == Mondai::QuickResponse { "この発話に対する返事として最もよいものは？".to_string() } else { question.clone() };
+            let mc = Mc { question: shown.clone(), options: options.clone(), answer: r.answer };
+            let ok = valid_n(&mc, m.options())
+                && !lines.is_empty()
+                && (m == Mondai::QuickResponse || !question.is_empty())
+                && (m != Mondai::QuickResponse || lines.len() == 1);
+            if !ok {
+                continue;
+            }
+            let script = Script { intro: r.intro.trim().to_string(), lines, question: if m == Mondai::QuickResponse { String::new() } else { question } };
+            let spoken: String = script.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");
+            if tok.is_some_and(|t| drift(t, &spoken, job.level, None) > 1) {
+                continue;
+            }
+            let mut it = new_item(m, job.level, shown, options, r.answer);
+            it.part = job.part;
+            it.explanation = r.explanation.trim().to_string();
+            it.script = Some(script);
+            made.push(it);
+        }
+        if made.is_empty() {
+            continue;
+        }
+        let with: Vec<Mc> = made
+            .iter()
+            .map(|i| Mc {
+                question: format!("Transcript:\n{}Question: {}", i.script.as_ref().map(Script::transcript).unwrap_or_default(), i.prompt),
+                options: i.options.clone(),
+                answer: i.answer,
+            })
+            .collect();
+        let right = solve(llm, &numbered(&with, None))?;
+        let blind = if matches!(m, Mondai::TaskListening | Mondai::PointListening) {
+            let without: Vec<Mc> = made.iter().map(|i| Mc { question: i.prompt.clone(), options: i.options.clone(), answer: i.answer }).collect();
+            solve(llm, &numbered(&without, None))?
+        } else {
+            HashMap::new()
+        };
+        let mut rng = Rng::new();
+        for (i, mut it) in made.into_iter().enumerate() {
+            let checked = right.get(&i).is_some_and(|(c, amb)| *c == it.answer && !amb);
+            let guessable = blind.get(&i).is_some_and(|(c, _)| *c == it.answer);
+            if checked && !guessable {
+                let (options, answer) = shuffled(&Mc { question: String::new(), options: it.options.clone(), answer: it.answer }, &mut rng);
+                it.options = options;
+                it.answer = answer;
+                out.push(it);
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn run_job(llm: &dyn Llm, tok: Option<&dyn Tokenizer>, job: &Job) -> Result<Vec<Item>> {
-    if job.mondai == Mondai::SentenceOrder {
+    if job.mondai.area() == Area::Listening {
+        listening_items(llm, tok, job)
+    } else if job.mondai == Mondai::SentenceOrder {
         order_items(llm, tok, job)
     } else if job.mondai.passage_based() {
         passage_items(llm, tok, job)
@@ -889,6 +1123,15 @@ pub struct Config {
     /// Questions taken from the bank so far.
     #[serde(default)]
     pub from_bank: usize,
+    /// With the 聴解 part (ADR 0018).
+    #[serde(default)]
+    pub listening: bool,
+}
+
+impl Config {
+    fn layout(&self) -> Vec<PartSpec> {
+        layout(self.level, self.half, self.listening)
+    }
 }
 
 fn config(store: &Store, test_id: &str) -> Result<(String, Config)> {
@@ -937,10 +1180,10 @@ fn stored(store: &Store, test_id: &str) -> Result<Vec<Stored>> {
 }
 
 /// A new practice test at a level (5 = N5 … 1 = N1); `prepare` writes its items.
-pub fn create(store: &Store, level: u8, half: bool, timed: bool, reuse: u8, repeat_seen: bool) -> Result<String> {
+pub fn create(store: &Store, level: u8, half: bool, timed: bool, reuse: u8, repeat_seen: bool, listening: bool) -> Result<String> {
     let level = level.clamp(1, 5);
     let id = Uuid::new_v4().to_string();
-    let parts = layout(level, half).len();
+    let parts = layout(level, half, listening).len();
     let c = Config {
         level,
         half,
@@ -952,6 +1195,7 @@ pub fn create(store: &Store, level: u8, half: bool, timed: bool, reuse: u8, repe
         reuse: reuse.min(100),
         repeat_seen,
         from_bank: 0,
+        listening,
     };
     store.conn.execute(
         "INSERT INTO tests (id, device_id, kind, start_level, started_at, config) VALUES (?1, ?2, 'practice', ?3, ?4, ?5)",
@@ -1050,11 +1294,11 @@ pub struct Plan {
     pub ai_types: usize,
 }
 
-pub fn plan(store: &Store, level: u8, half: bool, reuse: u8, repeat_seen: bool) -> Result<Plan> {
+pub fn plan(store: &Store, level: u8, half: bool, reuse: u8, repeat_seen: bool, listening: bool) -> Result<Plan> {
     let mut rng = Rng::new();
     let mut p = Plan { from_bank: 0, new: 0, ai_types: 0 };
     let mut words = HashSet::new();
-    for part in layout(level, half) {
+    for part in layout(level, half, listening) {
         for (m, need) in part.mondai {
             let want = (need * usize::from(reuse.min(100))).div_ceil(100);
             let got = from_bank(store, m, level, want, repeat_seen, &mut words, &mut rng)?.len();
@@ -1080,7 +1324,7 @@ pub fn prepare(
     stop: impl Fn() -> bool,
 ) -> Result<Progress> {
     let (_, mut c) = config(store, test_id)?;
-    let parts = layout(c.level, c.half);
+    let parts = c.layout();
     let total: usize = parts.iter().map(|p| p.mondai.len()).sum();
     let mut rng = Rng::new();
     let mut used: HashSet<String> = stored(store, test_id)?.into_iter().filter_map(|s| s.item.word.map(|w| w.expression)).collect();
@@ -1205,7 +1449,7 @@ fn part_names(kind: &str, c: &Config) -> Vec<(String, u32)> {
     if kind == "retry" {
         vec![("Missed questions".into(), 0)]
     } else {
-        layout(c.level, c.half).into_iter().map(|p| (p.name.to_string(), p.minutes)).collect()
+        c.layout().into_iter().map(|p| (p.name.to_string(), p.minutes)).collect()
     }
 }
 
@@ -1216,7 +1460,7 @@ pub fn sheet(store: &Store, test_id: &str) -> Result<Sheet> {
     let finished: bool =
         store.conn.query_row("SELECT finished_at IS NOT NULL FROM tests WHERE id = ?1", [test_id], |r| r.get(0))?;
     let all = stored(store, test_id)?;
-    let total = if kind == "retry" { 0 } else { layout(c.level, c.half).iter().map(|p| p.mondai.len()).sum() };
+    let total = if kind == "retry" { 0 } else { c.layout().iter().map(|p| p.mondai.len()).sum() };
     let mut parts: Vec<SheetPart> = part_names(&kind, &c)
         .into_iter()
         .enumerate()
@@ -1243,6 +1487,8 @@ pub fn sheet(store: &Store, test_id: &str) -> Result<Sheet> {
             options: it.options.clone(),
             passage: it.passage.clone(),
             group: it.group.clone(),
+            script: it.script.clone(),
+            spoken_options: it.mondai.spoken_options(),
         };
         match part.groups.last_mut() {
             Some(g) if g.mondai == it.mondai => g.items.push(view),
@@ -1420,14 +1666,18 @@ fn score(kind: &str, c: &Config, all: &[Stored]) -> PracticeResult {
         return r;
     }
     let scaled = |(right, total): (usize, usize), max: u32| (max as f64 * right as f64 / total.max(1) as f64, right, total);
-    let sections: Vec<(&str, (f64, usize, usize), u32, u32)> = if c.level >= 4 {
-        vec![("言語知識（文字・語彙・文法）・読解", scaled(right_of(&|_| true), 120), 120, 38)]
+    let area = |i: &Item| i.mondai.area();
+    let mut sections: Vec<(&str, (f64, usize, usize), u32, u32)> = if c.level >= 4 {
+        vec![("言語知識（文字・語彙・文法）・読解", scaled(right_of(&|i| area(i) != Area::Listening), 120), 120, 38)]
     } else {
         vec![
-            ("言語知識（文字・語彙・文法）", scaled(right_of(&|i| i.mondai.area() != Area::Reading), 60), 60, 19),
-            ("読解", scaled(right_of(&|i| i.mondai.area() == Area::Reading), 60), 60, 19),
+            ("言語知識（文字・語彙・文法）", scaled(right_of(&|i| matches!(area(i), Area::Vocab | Area::Grammar)), 60), 60, 19),
+            ("読解", scaled(right_of(&|i| area(i) == Area::Reading), 60), 60, 19),
         ]
     };
+    if c.listening {
+        sections.push(("聴解", scaled(right_of(&|i| area(i) == Area::Listening), 60), 60, 19));
+    }
     let total_raw: f64 = sections.iter().map(|s| s.1.0).sum();
     let max: u32 = sections.iter().map(|s| s.2).sum();
     let line = pass_mark(c.level) * max as f64 / 180.0;
@@ -1502,6 +1752,8 @@ pub struct ReviewItem {
     pub explanation: String,
     pub reported: bool,
     pub word: Option<WordRef>,
+    pub script: Option<Script>,
+    pub spoken_options: bool,
 }
 
 /// Every question with the learner's answer, the key and the explanation.
@@ -1523,6 +1775,8 @@ pub fn review(store: &Store, test_id: &str) -> Result<Vec<ReviewItem>> {
             choice: s.choice,
             explanation: s.item.explanation,
             reported: s.reported,
+            spoken_options: s.item.mondai.spoken_options(),
+            script: s.item.script,
             word: s.item.word,
         })
         .collect())
@@ -1600,7 +1854,7 @@ pub fn list(store: &Store) -> Result<Vec<PastPractice>> {
     for row in rows {
         let (id, kind, started_at, finished_at, c, result, items, answered) = row?;
         let Some(c) = c.and_then(|c| serde_json::from_str::<Config>(&c).ok()) else { continue };
-        let total: usize = layout(c.level, c.half).iter().map(|p| p.mondai.len()).sum();
+        let total: usize = c.layout().iter().map(|p| p.mondai.len()).sum();
         out.push(PastPractice {
             ready: kind == "retry" || c.prepared.len() >= total,
             id,
@@ -1641,16 +1895,16 @@ mod tests {
 
     #[test]
     fn layout_counts() {
-        let n3 = layout(3, false);
+        let n3 = layout(3, false, false);
         assert_eq!(n3.len(), 2);
         assert_eq!(n3.iter().map(|p| p.minutes).sum::<u32>(), 100);
         let items: usize = n3.iter().flat_map(|p| &p.mondai).map(|(_, n)| n).sum();
         assert_eq!(items, 35 + 23 + 16);
-        let half = layout(3, true);
+        let half = layout(3, true, false);
         assert_eq!(half[0].minutes, 15);
         assert!(half.iter().flat_map(|p| &p.mondai).all(|(_, n)| *n >= 1));
-        assert_eq!(layout(1, false)[0].minutes, 110);
-        assert!(layout(1, false)[0].mondai.iter().all(|(m, _)| *m != Mondai::Orthography));
+        assert_eq!(layout(1, false, false)[0].minutes, 110);
+        assert!(layout(1, false, false)[0].mondai.iter().all(|(m, _)| *m != Mondai::Orthography));
         assert_eq!(Mondai::MidText.per_passage(3, 6), 3);
         assert_eq!(Mondai::MidText.per_passage(5, 2), 2);
         assert_eq!(Mondai::LongText.per_passage(1, 4), 4);
@@ -1711,6 +1965,19 @@ mod tests {
                         })).collect::<Vec<_>>()
                     })).collect::<Vec<_>>()})
                 }
+                "listening_items" => {
+                    let k = n("Number of items:");
+                    let quick = user.contains("Type: 即時応答");
+                    json!({"listening_items": (0..k).map(|i| if quick {
+                        json!({"intro": "", "lines": [{"speaker": "woman", "text": format!("明日、一緒に行きませんか。{i}")}], "question": "",
+                               "options": ["はい、ぜひ。", "いいえ、行きました。", "はい、そうでした。"], "answer": 0, "explanation": "An invitation."})
+                    } else {
+                        json!({"intro": "女の人と男の人が話しています。男の人はこのあと何をしますか。",
+                               "lines": [{"speaker": "woman", "text": "パンを買ってきて。"}, {"speaker": "man", "text": format!("わかった。牛乳も？{i}")}],
+                               "question": "男の人はこのあと何をしますか。質問",
+                               "options": ["パンを買う", "牛乳を飲む", "家に帰る", "寝る"], "answer": 0, "explanation": "She asks for bread."})
+                    }).collect::<Vec<_>>()})
+                }
                 _ => {
                     // Per question: its options; the ★ items' key is the fragment 前.
                     let mut questions: Vec<Vec<&str>> = Vec::new();
@@ -1721,7 +1988,7 @@ mod tests {
                             q.push(o);
                         }
                     }
-                    let sees = user.starts_with("Passage:") || !user.contains("質問");
+                    let sees = user.starts_with("Passage:") || user.contains("Transcript:") || !user.contains("質問");
                     json!({"answers": questions.iter().enumerate().map(|(i, opts)| {
                         let choice = opts.iter().position(|o| *o == "前").unwrap_or(if sees { 0 } else { 1 });
                         json!({"index": i, "choice": choice, "ambiguous": false})
@@ -1734,7 +2001,7 @@ mod tests {
     #[test]
     fn prepares_a_whole_test_and_scores_it() {
         let s = Store::open_in_memory().unwrap();
-        let id = create(&s, 3, true, true, 0, false).unwrap();
+        let id = create(&s, 3, true, true, 0, false, false).unwrap();
         let llm = Fake::new();
         let mut seen = Vec::new();
         let p = prepare(&s, &llm, None, &id, |d, t| seen.push((d, t)), || false).unwrap();
@@ -1744,7 +2011,7 @@ mod tests {
         assert!(sheet.ready && !sheet.finished);
         assert_eq!(sheet.parts.len(), 2);
         // Every question type of the layout is there, in the layout's order, with its count.
-        for (part, spec) in sheet.parts.iter().zip(layout(3, true)) {
+        for (part, spec) in sheet.parts.iter().zip(layout(3, true, false)) {
             let got: Vec<(Mondai, usize)> = part.groups.iter().map(|g| (g.mondai, g.items.len())).collect();
             assert_eq!(got, spec.mondai, "{}", part.name);
         }
@@ -1863,6 +2130,7 @@ mod tests {
             reuse: 0,
             repeat_seen: false,
             from_bank: 0,
+            listening: false,
         };
         let mk = |m: Mondai, right: bool| Stored {
             item: new_item(m, 2, "q".into(), vec!["a".into(); 4], 0),
@@ -1888,7 +2156,7 @@ mod tests {
     #[test]
     fn retry_has_only_missed_questions() {
         let s = Store::open_in_memory().unwrap();
-        let id = create(&s, 5, true, false, 0, false).unwrap();
+        let id = create(&s, 5, true, false, 0, false, false).unwrap();
         prepare(&s, &Fake::new(), None, &id, |_, _| {}, || false).unwrap();
         let all = stored(&s, &id).unwrap();
         for (i, st) in all.iter().enumerate() {
@@ -1908,10 +2176,41 @@ mod tests {
     }
 
     #[test]
+    fn listening_part_is_written_and_scored() {
+        assert_eq!(layout(3, false, true).last().map(|p| (p.name, p.minutes)), Some(("聴解", 40)));
+        let s = Store::open_in_memory().unwrap();
+        let id = create(&s, 3, true, false, 0, false, true).unwrap();
+        let p = prepare(&s, &Fake::new(), None, &id, |_, _| {}, || false).unwrap();
+        assert_eq!(p.done, p.total);
+        let sh = sheet(&s, &id).unwrap();
+        assert_eq!(sh.parts.len(), 3);
+        let listening = &sh.parts[2];
+        assert_eq!(
+            listening.groups.iter().map(|g| (g.mondai, g.items.len())).collect::<Vec<_>>(),
+            layout(3, true, true)[2].mondai
+        );
+        for g in &listening.groups {
+            for it in &g.items {
+                let sc = it.script.as_ref().expect("a script");
+                assert!(!sc.lines.is_empty());
+                assert_eq!(it.spoken_options, matches!(g.mondai, Mondai::GistListening | Mondai::QuickResponse));
+                assert_eq!(it.options.len(), if g.mondai == Mondai::QuickResponse { 3 } else { 4 });
+            }
+        }
+        // All right: three sections out of 180 with the official pass mark (N3: 95).
+        for st in stored(&s, &id).unwrap() {
+            answer(&s, &id, &st.item.id, Some(st.item.answer)).unwrap();
+        }
+        let r = finish(&s, &id).unwrap();
+        assert_eq!(r.sections.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["言語知識（文字・語彙・文法）", "読解", "聴解"]);
+        assert_eq!((r.total_max, r.pass_line, r.verdict), (180, 95, Some(Verdict::LikelyPass)));
+    }
+
+    #[test]
     fn later_tests_reuse_the_bank() {
         let s = Store::open_in_memory().unwrap();
         let llm = Fake::new();
-        let first = create(&s, 4, true, false, 0, false).unwrap();
+        let first = create(&s, 4, true, false, 0, false, false).unwrap();
         prepare(&s, &llm, None, &first, |_, _| {}, || false).unwrap();
         let first_calls = llm.calls.lock().unwrap().len();
         let n = stored(&s, &first).unwrap().len();
@@ -1920,9 +2219,9 @@ mod tests {
         assert!(counts[&4].total > n && counts[&4].unseen == counts[&4].total - n, "{counts:?}");
 
         // Bank first, unseen only: the extras come back, the AI writes less.
-        let p = plan(&s, 4, true, 100, false).unwrap();
+        let p = plan(&s, 4, true, 100, false, false).unwrap();
         assert!(p.from_bank > 0 && p.from_bank + p.new == n, "{p:?}");
-        let second = create(&s, 4, true, false, 100, false).unwrap();
+        let second = create(&s, 4, true, false, 100, false, false).unwrap();
         let r = prepare(&s, &llm, None, &second, |_, _| {}, || false).unwrap();
         // The plan is an estimate: new questions take words that can rule out a bank question.
         assert!(r.from_bank.abs_diff(p.from_bank) <= 2, "{r:?} {p:?}");
@@ -1933,13 +2232,13 @@ mod tests {
         assert!(seconds.iter().all(|x| x.item.origin.as_ref().is_some_and(|o| !firsts.contains(o))), "nothing seen is repeated");
         // Reused passages stay whole and in the sheet's layout.
         let sh = sheet(&s, &second).unwrap();
-        for (part, spec) in sh.parts.iter().zip(layout(4, true)) {
+        for (part, spec) in sh.parts.iter().zip(layout(4, true, false)) {
             assert_eq!(part.groups.iter().map(|g| (g.mondai, g.items.len())).collect::<Vec<_>>(), spec.mondai);
         }
 
         // Repeating seen questions allowed: no AI at all.
         let before = llm.calls.lock().unwrap().len();
-        let third = create(&s, 4, true, false, 100, true).unwrap();
+        let third = create(&s, 4, true, false, 100, true, false).unwrap();
         let r = prepare(&s, &llm, None, &third, |_, _| {}, || false).unwrap();
         assert_eq!(r.done, r.total);
         // Nearly all from the bank; a type whose bank questions share words with another type's
@@ -1961,7 +2260,7 @@ mod tests {
     #[test]
     fn stopping_and_continuing() {
         let s = Store::open_in_memory().unwrap();
-        let id = create(&s, 4, true, true, 0, false).unwrap();
+        let id = create(&s, 4, true, true, 0, false, false).unwrap();
         let llm = Fake::new();
         // Stops after the first round of PARALLEL types.
         let rounds = std::cell::Cell::new(0);

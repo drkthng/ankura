@@ -271,12 +271,25 @@ export interface TestIntro {
 export type Mondai =
   | "kanji_reading" | "orthography" | "word_formation" | "context" | "paraphrase" | "usage"
   | "grammar_form" | "sentence_order" | "text_grammar"
-  | "short_text" | "mid_text" | "long_text" | "integrated" | "argument" | "info_search";
+  | "short_text" | "mid_text" | "long_text" | "integrated" | "argument" | "info_search"
+  | "task_listening" | "point_listening" | "gist_listening" | "quick_response";
 
 export interface PartSpec {
   name: string;
   minutes: number;
   mondai: [Mondai, number][];
+}
+
+export interface ScriptLine {
+  speaker: "woman" | "man" | "narrator";
+  text: string;
+}
+
+/** What a listening question plays (ADR 0018). */
+export interface Script {
+  intro: string;
+  lines: ScriptLine[];
+  question: string;
 }
 
 export interface PracticeItem {
@@ -287,6 +300,9 @@ export interface PracticeItem {
   options: string[];
   passage: string | null;
   group: string | null;
+  script: Script | null;
+  /** The options are only spoken (概要理解, 即時応答). */
+  spoken_options: boolean;
 }
 
 export interface PracticeSheet {
@@ -519,10 +535,10 @@ export const api = {
   testReading: (testId: string) => invoke<TestItem[]>("test_reading", { testId }),
   testFinish: (testId: string) => invoke<Estimate>("test_finish", { testId }),
   practiceIntro: () => invoke<PracticeIntro>("practice_intro"),
-  practiceCreate: (level: number, half: boolean, timed: boolean, reuse: number, repeatSeen: boolean) =>
-    invoke<string>("practice_create", { level, half, timed, reuse, repeatSeen }),
-  practicePlan: (level: number, half: boolean, reuse: number, repeatSeen: boolean) =>
-    invoke<PracticePlan>("practice_plan", { level, half, reuse, repeatSeen }),
+  practiceCreate: (level: number, half: boolean, timed: boolean, reuse: number, repeatSeen: boolean, listening: boolean) =>
+    invoke<string>("practice_create", { level, half, timed, reuse, repeatSeen, listening }),
+  practicePlan: (level: number, half: boolean, reuse: number, repeatSeen: boolean, listening: boolean) =>
+    invoke<PracticePlan>("practice_plan", { level, half, reuse, repeatSeen, listening }),
   practicePrepare: (testId: string) => invoke<{ done: number; total: number; from_bank: number }>("practice_prepare", { testId }),
   memoryStats: () => invoke<MemoryStats>("memory_stats"),
   practiceStop: () => invoke<void>("practice_stop"),

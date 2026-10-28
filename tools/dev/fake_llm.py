@@ -115,6 +115,20 @@ class Handler(BaseHTTPRequestHandler):
                                        "explanation": "の links 駅 and 前; で marks the place."} for i in range(n)]}
         elif props == ["practice_passages"]:
             answer = practice_passages(prompt)
+        elif props == ["listening_items"]:
+            n = int((re.search(r"Number of items: (\d+)", prompt) or [None, "4"])[1])
+            if "Type: 即時応答" in prompt:
+                items = [{"intro": "", "lines": [{"speaker": "woman", "text": f"明日、一緒に映画を見に行きませんか。#{i}"}], "question": "",
+                          "options": ["いいですね、行きましょう。", "はい、見ました。", "映画が好きでした。"], "answer": 0,
+                          "explanation": "An invitation; only the first accepts it."} for i in range(n)]
+            else:
+                items = [{"intro": "女の人と男の人が話しています。男の人はこのあと何をしますか。",
+                          "lines": [{"speaker": "woman", "text": "帰りにパンを買ってきてくれる？"}, {"speaker": "man", "text": f"いいよ。牛乳もいる？#{i}"},
+                                    {"speaker": "woman", "text": "牛乳はまだあるから、パンだけでいいよ。"}],
+                          "question": "男の人はこのあと何をしますか。",
+                          "options": ["パンを買う", "牛乳を買う", "パンと牛乳を買う", "何も買わない"], "answer": 0,
+                          "explanation": "She says bread only."} for i in range(n)]
+            answer = {"listening_items": items}
         elif props == ["answers"]:
             # The checker: right on grammar and word items; reading questions only with the
             # passage. For ★ items the key is the fragment 前 (options are shuffled).
@@ -124,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
                     questions.append([])
                 elif questions and re.match(r"^\s+\d\) ", line):
                     questions[-1].append(line.split(") ", 1)[1])
-            sees = any(m in prompt for m in ("Passage:", "（", "【", "★", "使い方"))
+            sees = any(m in prompt for m in ("Passage:", "Transcript:", "（", "【", "★", "使い方"))
             answer = {"answers": [
                 {"index": i, "choice": opts.index("前") if "前" in opts else (0 if sees else 1), "ambiguous": False}
                 for i, opts in enumerate(questions)

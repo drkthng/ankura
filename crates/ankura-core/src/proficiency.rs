@@ -391,12 +391,17 @@ pub(crate) fn numbered(items: &[Mc], passage: Option<&str>) -> String {
 }
 
 pub(crate) fn valid(m: &Mc) -> bool {
-    m.options.len() == 4 && m.answer < 4 && !m.question.trim().is_empty() && m.options.iter().collect::<HashSet<_>>().len() == 4
+    valid_n(m, 4)
+}
+
+/// A question with `n` different options and a key among them.
+pub(crate) fn valid_n(m: &Mc, n: usize) -> bool {
+    m.options.len() == n && m.answer < n && !m.question.trim().is_empty() && m.options.iter().collect::<HashSet<_>>().len() == n
 }
 
 /// Shuffles the options so the key isn't always in the same place.
 pub(crate) fn shuffled(m: &Mc, rng: &mut Rng) -> (Vec<String>, usize) {
-    let mut idx: Vec<usize> = (0..4).collect();
+    let mut idx: Vec<usize> = (0..m.options.len()).collect();
     rng.shuffle(&mut idx);
     let options = idx.iter().map(|&i| m.options[i].clone()).collect();
     let answer = idx.iter().position(|&i| i == m.answer).expect("permutation");

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
+  import * as speech from "../lib/speech";
   import {
     api,
     type PracticeIntro,
@@ -22,6 +23,8 @@
   // Intro choices
   let level = $state(5);
   let half = $state(false);
+  /** With the 聴解 part (ADR 0018). */
+  let listening = $state(false);
   let timed = $state(true);
   /** Share of questions from the bank (ADR 0016). */
   let reuse = $state(100);
@@ -66,7 +69,7 @@
     }
   }
 
-  const layout = $derived(intro?.layouts.find(([l]) => l === level)?.[1] ?? []);
+  const layout = $derived((intro?.layouts.find(([l]) => l === level)?.[1] ?? []).filter((p) => listening || p.name !== "聴解"));
   const fullItems = $derived(layout.reduce((n, p) => n + p.mondai.reduce((m, [, k]) => m + k, 0), 0));
   const halfItems = $derived(layout.reduce((n, p) => n + p.mondai.reduce((m, [, k]) => m + Math.ceil(k / 2), 0), 0));
   const fullMinutes = $derived(layout.reduce((n, p) => n + p.minutes, 0));
@@ -75,7 +78,7 @@
 
   let planSeq = 0;
   $effect(() => {
-    const args = [level, half, reuse, repeatSeen] as const;
+    const args = [level, half, reuse, repeatSeen, listening] as const;
     if (!intro) return;
     // Only the answer to the latest choice counts; an older one may arrive later.
     const seq = ++planSeq;
@@ -91,7 +94,7 @@
     error = "";
     note = "";
     try {
-      testId = await api.practiceCreate(level, half, timed, reuse, repeatSeen);
+      testId = await api.practiceCreate(level, half, timed, reuse, repeatSeen, listening);
       await prepare();
     } catch (e) {
       error = String(e);
@@ -185,6 +188,69 @@
   const siblings = $derived(cur?.item.group ? flat.filter((e) => e.item.group === cur.item.group) : []);
   const isRetry = $derived(sheet?.kind === "retry");
   const curText = $derived(cur ? underlined(cur.item) : ["", "", ""]);
+
+  // --- listening questions (ADR 0018) ---
+  let played = $state(new Set<string>());
+  let playing = $state<string | null>(null);
+  let listenError = $state("");
+  let listenRun = 0;
+  const NUM = ["１", "２", "３", "４"];
+
+  /** What a listening question plays, in order: intro, talk, question, and spoken options. */
+  function playlist(item: PracticeItem): { text: string; role: speech.Role }[] {
+    const sc = item.script!;
+    const out: { text: string; role: speech.Role }[] = [];
+    if (sc.intro) out.push({ text: sc.intro, role: "narrator" });
+    for (const l of sc.lines) out.push({ text: l.text, role: l.speaker === "man" ? "man" : "woman" });
+    if (sc.question) out.push({ text: sc.question, role: "narrator" });
+    if (item.spoken_options) {
+      // 即時応答: the other speaker replies; 概要理解: the narrator reads the options.
+      const reply: speech.Role = sc.question ? "narrator" : sc.lines[0]?.speaker === "man" ? "woman" : "man";
+      item.options.forEach((o, i) => {
+        out.push({ text: `${NUM[i]}。`, role: "narrator" });
+        out.push({ text: o, role: reply });
+      });
+    }
+    return out;
+  }
+
+  async function listenTo(item: PracticeItem) {
+    const me = ++listenRun;
+    listenError = "";
+    playing = item.id;
+    played = new Set(played).add(item.id);
+    try {
+      for (const { text, role } of playlist(item)) {
+        if (listenRun !== me) return;
+        await speech.say(text, role);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    } catch (e) {
+      if (listenRun === me) listenError = String(e).replace(/^Error: /, "");
+    } finally {
+      if (listenRun === me) playing = null;
+    }
+  }
+
+  function stopListening() {
+    listenRun++;
+    speech.stop();
+    playing = null;
+  }
+
+  // With the timer on, an unplayed listening question plays when it's opened, once.
+  $effect(() => {
+    const item = cur?.item;
+    if (phase !== "taking" || !item?.script) return;
+    if (sheet?.timed && !played.has(item.id) && playing !== item.id) listenTo(item);
+  });
+  $effect(() => {
+    // Leaving a question stops its audio.
+    const id = cur?.item.id;
+    return () => {
+      if (playing && playing === id) stopListening();
+    };
+  });
 
   $effect(() => {
     if (phase === "taking" && limit > 0 && left <= 0 && !timesUpShown) timesUpShown = true;
@@ -354,7 +420,7 @@
 
   {#if phase === "intro"}
     <p class="muted lead">
-      A mock JLPT for one level: the exam's question types in its order and times, without listening. Ankura writes the
+      A mock JLPT for one level: the exam's question types in its order and times, listening optional. Ankura writes the
       questions before you start (a few minutes), around words from the JLPT lists, and checks each one. You get a
       JLPT-style score, a pass estimate, and every answer explained.
     </p>
@@ -372,6 +438,11 @@
           <span class="lab">Length</span>
           <button class="seg" class:on={!half} onclick={() => (half = false)}>Full · {fullItems} questions · {fullMinutes} min</button>
           <button class="seg" class:on={half} onclick={() => (half = true)}>Half · {halfItems} questions · {halfMinutes} min</button>
+        </div>
+        <div class="row">
+          <span class="lab">Listening</span>
+          <label class="check"><input type="checkbox" bind:checked={listening} /> Include 聴解</label>
+          <span class="muted small">spoken by your computer's voice or VOICEVOX (Settings → Listening)</span>
         </div>
         <div class="row">
           <span class="lab">Questions</span>
@@ -522,10 +593,29 @@
         </section>
       {/if}
       <section class="card q">
-        <p class="sentence"><span class="num">{cur.item.number}</span>{curText[0]}{#if curText[1]}<u>{curText[1]}</u>{/if}{curText[2]}</p>
-        <div class="options" class:long={cur.group.mondai === "usage"}>
+        {#if cur.item.script}
+          {@const once = sheet.timed && played.has(cur.item.id) && playing !== cur.item.id}
+          <div class="player">
+            <span class="num">{cur.item.number}</span>
+            {#if playing === cur.item.id}
+              <button onclick={stopListening}>⏹ Stop</button>
+              <span class="muted small">Listening…</span>
+            {:else}
+              <button class="primary" disabled={once} onclick={() => listenTo(cur.item)}>
+                ▶ {played.has(cur.item.id) ? "Play again" : "Play"}
+              </button>
+              {#if once}<span class="muted small">Played: with the timer on, each question plays once, as in the exam.</span>{/if}
+            {/if}
+            {#if listenError}<span class="error small">{listenError}</span>{/if}
+          </div>
+        {:else}
+          <p class="sentence"><span class="num">{cur.item.number}</span>{curText[0]}{#if curText[1]}<u>{curText[1]}</u>{/if}{curText[2]}</p>
+        {/if}
+        <div class="options" class:long={cur.group.mondai === "usage"} class:numbers={cur.item.spoken_options}>
           {#each cur.item.options as o, i}
-            <button class:picked={answers[cur.item.id] === i} onclick={() => choose(i)}><kbd>{i + 1}</kbd> {o}</button>
+            <button class:picked={answers[cur.item.id] === i} onclick={() => choose(i)}>
+              <kbd>{i + 1}</kbd>{cur.item.spoken_options ? "" : ` ${o}`}
+            </button>
           {/each}
         </div>
         <div class="row nav">
@@ -541,7 +631,9 @@
         <p class="muted small">N{result.level} practice test{result.half ? " (half length)" : ""}</p>
         <p class="headline"><span class="verdict big v-{result.verdict}">{VERDICT[result.verdict]}</span></p>
         <p>
-          <strong>{result.total_score}</strong> of {result.total_max} points without listening; the pass line for that is about
+          <strong>{result.total_score}</strong> of {result.total_max} points{result.sections.some((s) => s.name === "聴解")
+            ? ""
+            : " without listening"}; the pass line for that is about
           <strong>{result.pass_line}</strong>.
         </p>
         <div class="sections">
@@ -595,8 +687,8 @@
       </div>
       {#if result.verdict}
         <p class="muted small">
-          An estimate, not a JLPT score: the real exam scales scores by question difficulty, which Ankura can't know, and
-          includes listening. The pass line here is the official one scaled to the sections tested. AI-written questions can
+          An estimate, not a JLPT score: the real exam scales scores by question difficulty, which Ankura can't know. Without
+          the listening part, the pass line here is the official one scaled to the sections tested. AI-written questions can
           be easier or harder than the real ones; report any that are wrong.
         </p>
       {/if}
@@ -622,7 +714,18 @@
       {@const [a, u, b] = underlined(r)}
       <section class="card rev" class:reported={r.reported}>
         <p class="muted small">{r.number} · <span class="ja">{r.name_ja}</span></p>
-        <p class="sentence">{a}{#if u}<u>{u}</u>{/if}{b}</p>
+        {#if r.script}
+          <div class="transcript ja">
+            {#if r.script.intro}<p class="muted">{r.script.intro}</p>{/if}
+            {#each r.script.lines as l}<p><span class="who">{l.speaker === "man" ? "男" : "女"}</span>{l.text}</p>{/each}
+            {#if r.script.question}<p class="muted">{r.script.question}</p>{/if}
+          </div>
+          <button class="ghost small" onclick={() => (playing === r.id ? stopListening() : listenTo(r))}>
+            {playing === r.id ? "⏹ Stop" : "▶ Listen again"}
+          </button>
+        {:else}
+          <p class="sentence">{a}{#if u}<u>{u}</u>{/if}{b}</p>
+        {/if}
         <ol class="ropts">
           {#each r.options as o, j}
             <li class:key={j === r.answer} class:wrong={j === r.choice && j !== r.answer}>
@@ -1003,6 +1106,24 @@
   }
   .rev p {
     margin: 0.2rem 0;
+  }
+  .player {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .options.numbers {
+    grid-template-columns: repeat(4, minmax(0, 6rem));
+  }
+  .transcript p {
+    margin: 0.15rem 0;
+  }
+  .who {
+    display: inline-block;
+    width: 1.6rem;
+    color: var(--muted);
   }
   .ropts {
     font-family: var(--font-read);

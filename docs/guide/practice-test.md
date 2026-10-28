@@ -3,7 +3,7 @@
 [← README](../../README.md)
 
 A mock JLPT for one level, N5 to N1: the exam's question types (問題) in the exam's order, with
-its time limits. Listening isn't included yet. Every question is Ankura's own, written by the AI
+its time limits, with the listening part (聴解) if you want it. Every question is Ankura's own, written by the AI
 around words from the JLPT lists and checked before you see it; none come from the JLPT or from
 prep books.
 
@@ -16,6 +16,11 @@ Pick:
 - **Length.** *Full* has about as many questions as the real exam (N5 43, N4 57, N3 74, N2 73,
   N1 70, without listening) and its time (N5 60 minutes … N1 110). *Half* keeps every question
   type with half the questions and half the time.
+- **Listening.** *Include 聴解* adds the listening part, with its official time (N5 30 minutes …
+  N1 55): 課題理解, ポイント理解, 概要理解 (N3-N1) and 即時応答. The questions are spoken by the
+  voice set in Settings → Listening ([Listening](reading.md#listening)); with VOICEVOX the woman
+  and the man in a dialogue get different voices. 発話表現 (with pictures) and 統合理解 aren't
+  there yet.
 - **Questions.** Every question Ankura writes is kept in a question bank, also the spare ones a
   test didn't need. *Bank first* (the default) takes as many as it can from there and has the AI
   write the rest; *Half new* takes at most half; *All new* has everything written fresh. Only
@@ -45,6 +50,11 @@ the level and the words to build questions on, never anything about you.
 - Reading texts stay on the left while you answer their questions on the right. In 文章の文法 the
   blank you're answering is highlighted in the text.
 - Keyboard: **1-4** to answer, **←** / **→** for the previous / next question.
+- **Listening questions** play when you open them. With the timer on, each plays once, as in the
+  exam; without it, **Play again** replays it. For 課題理解 and ポイント理解 the answers are
+  printed; for 概要理解 and 即時応答 they are only spoken, and you pick their number.
+
+  ![A listening question: playing, with the four printed answers](../img/practice-listening.png)
 - **Pause** keeps your answers and time; the test waits under "Your tests".
 
 ## The result
@@ -52,11 +62,11 @@ the level and the words to build questions on, never anything about you.
 ![A practice-test result: verdict, score against the pass line, grades, accuracy per question type](../img/practice-result.png)
 
 - **Verdict:** *Likely pass*, *Borderline* or *Not yet*, from your score against the pass line.
-- **Score** per section as on the JLPT score report: N3-N1 言語知識 (vocabulary and grammar) and
-  読解, 0-60 each; N5 and N4 言語知識・読解 0-120. The mark on each bar is the sectional minimum:
+- **Score** per section as on the JLPT score report: N3-N1 言語知識 (vocabulary and grammar),
+  読解 and 聴解, 0-60 each; N5 and N4 言語知識・読解 0-120 and 聴解 0-60. The mark on each bar is the sectional minimum:
   below it, the real exam fails you whatever your total.
-- **Pass line:** the official pass mark scaled to the sections tested (for example N3: 95 of 180
-  with listening, so about 63 of 120 here). *Borderline* means within 6% of the maximum around it.
+- **Pass line:** with listening, the official pass mark (for example N3: 95 of 180); without it,
+  the pass mark scaled to the sections tested (N3: about 63 of 120). *Borderline* means within 6% of the maximum around it.
 - **A / B / C** for 文字・語彙 and 文法, with the score report's cut-offs (67% and 34%).
 - **By question type:** right answers per 問題, to see where the points went.
 
@@ -67,7 +77,7 @@ easier or harder than the real ones.
 ## Review, cards and retry
 
 - **Review answers** shows every question (or only the missed ones) with your answer, the right
-  one, and an explanation.
+  one, and an explanation; listening questions with their transcript and **Listen again**.
 - **Report a bad question** if a question is wrong or has two right answers. It's left out of
   the score straight away, never reused in a later test, and stored so later versions can learn
   from it.

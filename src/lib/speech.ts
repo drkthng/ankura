@@ -75,6 +75,35 @@ export async function current(): Promise<Voice> {
   return v ? { engine: "system", label: v.name } : { engine: "none", label: "no Japanese voice on this computer" };
 }
 
+/** Who speaks a line of a listening question (ADR 0018). */
+export type Role = "narrator" | "woman" | "man";
+
+// VOICEVOX characters by voice, for the woman and the man of a dialogue.
+const WOMEN = ["四国めたん", "春日部つむぎ", "冥鳴ひまり", "九州そら", "もち子さん", "WhiteCUL", "小夜/SAYO", "櫻歌ミコ", "波音リツ", "中国うさぎ"];
+const MEN = ["玄野武宏", "青山龍星", "白上虎太郎", "剣崎雌雄", "雀松朱司", "麒ヶ島宗麟", "ちび式じい"];
+const MALE_SYSTEM = /ichiro|keita|otoya|hattori|daichi|naoki/i;
+
+function roleStyle(role: Role): number {
+  const narrator = styleId();
+  if (role === "narrator") return narrator;
+  const names = role === "woman" ? WOMEN : MEN;
+  for (const name of names) {
+    const sp = speakers?.find((x) => x.name === name);
+    const st = sp?.styles.find((x) => x.name === "ノーマル") ?? sp?.styles[0];
+    if (st && st.id !== narrator) return st.id;
+  }
+  return narrator;
+}
+
+async function roleVoice(role: Role): Promise<{ voice: SpeechSynthesisVoice | null; pitch: number }> {
+  const narrator = await pickSystemVoice();
+  if (role === "narrator") return { voice: narrator, pitch: 1 };
+  const voices = await systemVoices();
+  const fits = voices.filter((v) => (role === "man") === MALE_SYSTEM.test(v.name) && v.name !== narrator?.name);
+  // One voice only: tell the speakers apart by pitch.
+  return fits[0] ? { voice: fits[0], pitch: 1 } : { voice: narrator, pitch: role === "man" ? 0.7 : 1.2 };
+}
+
 function styleId(): number {
   const ids = (speakers ?? []).flatMap((s) => s.styles.map((st) => st.id));
   return settings?.style != null && ids.includes(settings.style) ? settings.style : (ids[0] ?? 0);
@@ -95,12 +124,12 @@ export function setSpeed(x: number) {
 }
 
 /** Speaks a text; resolves when it ends or is stopped, rejects when no voice can speak it. */
-export async function say(text: string): Promise<void> {
+export async function say(text: string, role: Role = "narrator"): Promise<void> {
   stop();
   const v = await current();
   if (v.engine === "none") throw new Error(`Can't speak: ${v.label}. Choose a voice in Settings → Listening.`);
   if (v.engine === "voicevox") {
-    const raw = await invoke<ArrayBuffer | Uint8Array | number[]>("voicevox_speak", { text, style: styleId(), speed: speed() });
+    const raw = await invoke<ArrayBuffer | Uint8Array | number[]>("voicevox_speak", { text, style: roleStyle(role), speed: speed() });
     // Tauri hands raw responses over as an ArrayBuffer on some platforms, a number array on others.
     const bytes =
       raw instanceof ArrayBuffer ? raw : raw instanceof Uint8Array ? raw.slice().buffer : new Uint8Array(raw).buffer;
@@ -132,8 +161,9 @@ export async function say(text: string): Promise<void> {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "ja-JP";
   u.rate = speed();
-  const voice = await pickSystemVoice();
+  const { voice, pitch } = await roleVoice(role);
   if (voice) u.voice = voice;
+  u.pitch = pitch;
   await new Promise<void>((done, fail) => {
     finish = done;
     u.onend = () => done();

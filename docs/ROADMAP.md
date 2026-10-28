@@ -81,7 +81,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
       sentences, savings shown in Settings.
 - [x] Listening in the reader (ADR 0017): computer voices or VOICEVOX, sentence by sentence with
       highlighting, word and sentence in the pop-up, audio kept on disk.
-- [ ] JLPT listening questions in practice tests (即時応答, 課題理解 first).
+- [x] JLPT listening questions in practice tests (ADR 0018): 課題理解, ポイント理解, 概要理解,
+      即時応答; scripts with a narrator, a woman and a man; full JLPT scoring with listening.
+- [ ] 発話表現 (pictures) and 統合理解 listening questions; listening in the level check.
 - [ ] Italian (CILS) and Spanish (DELE/SIELE) tests. Research in
       `docs/research/proficiency-tests.md`.
 
