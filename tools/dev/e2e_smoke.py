@@ -487,6 +487,22 @@ def main():
         print("first fields:", fields)
         assert any("<b>傘</b>" in f for f in fields), fields
         d.shot(out / "14-cards.png")
+        # Changing a card by asking the AI, then undoing it.
+        first = "(//section[contains(@class,'draft')])[1]"
+        before_first = d.js("return document.querySelector('section.draft textarea').value")
+        d.type(first + "//form[contains(@class,'ask')]//input", "an example with ほど…ない")
+        d.click(first + "//form[contains(@class,'ask')]//button[normalize-space()='Change']")
+        d.find(first + "//button[normalize-space()='Undo']", timeout=60)
+        changed = d.js("return document.querySelector('section.draft textarea').value")
+        print("card changed:", changed)
+        assert changed == "今日は昨日<b>ほど</b>寒くない。", changed
+        d.shot(out / "14a-card-changed.png")
+        d.click(first + "//button[normalize-space()='Undo']")
+        for _ in range(20):
+            if d.js("return document.querySelector('section.draft textarea').value") == before_first:
+                break
+            time.sleep(0.25)
+        assert d.js("return document.querySelector('section.draft textarea').value") == before_first
         d.click("//button[normalize-space()='Add 2 to Anki']")
         for _ in range(60):  # until both have left the list
             if d.js("return document.querySelectorAll('section.draft').length === 0"):

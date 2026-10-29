@@ -85,6 +85,29 @@
       replace(await api.cardNewSentence(d.id));
       await fill(drafts.find((x) => x.id === d.id)!);
     });
+  // --- changing a card by asking the AI ---
+  let requests = $state<Record<string, string>>({});
+  /** The card before the last change, for Undo, and what was asked. */
+  let before = $state<Record<string, { draft: CardDraft; request: string }>>({});
+  const SUGGESTIONS = ["Another meaning of the word", "A simpler sentence", "A shorter definition"];
+  const change = (d: CardDraft, request: string) =>
+    run(d.id, "Changing the card…", async () => {
+      const was = { ...d, fields: d.fields ? { ...d.fields } : null };
+      const changed = await api.cardChange(d.id, request);
+      replace(changed);
+      before = { ...before, [d.id]: { draft: was, request } };
+      requests = { ...requests, [d.id]: "" };
+      if (!changed.fields && targetSet) await fill(changed);
+    });
+  const undo = (d: CardDraft) =>
+    run(d.id, "", async () => {
+      const b = before[d.id];
+      if (!b) return;
+      replace(await api.cardRestore(d.id, b.draft.sentence, b.draft.sentence_source, b.draft.fields));
+      const { [d.id]: _, ...rest } = before;
+      before = rest;
+    });
+
   const byHand = (d: CardDraft) =>
     run(d.id, "", async () => {
       const names = await api.cardFieldNames();
@@ -163,7 +186,9 @@
           <span class="word">{d.display}</span>
           <span class="muted">{d.key.reading}</span>
         </label>
-        <span class="src muted small">{d.sentence_source === "new" ? "new sentence" : "from your reading"}</span>
+        <span class="src muted small">
+          {d.sentence_source === "new" ? "new sentence" : d.sentence_source === "changed" ? "changed with AI" : "from your reading"}
+        </span>
       </header>
       <p class="sentence">{d.sentence}</p>
       {#if busy[d.id]}
@@ -188,6 +213,31 @@
         {/if}
         <button class="ghost" disabled={!!busy[d.id]} onclick={() => newSentence(d)}>New sentence</button>
         <button class="ghost danger" disabled={!!busy[d.id]} onclick={() => discard(d)}>Discard</button>
+      </div>
+      <form
+        class="ask"
+        onsubmit={(e) => {
+          e.preventDefault();
+          if (requests[d.id]?.trim()) change(d, requests[d.id]);
+        }}
+      >
+        <input
+          placeholder="Tell the AI what to change, e.g. “an example with ほど…ない”"
+          value={requests[d.id] ?? ""}
+          oninput={(e) => (requests = { ...requests, [d.id]: e.currentTarget.value })}
+          disabled={!!busy[d.id]}
+        />
+        <button type="submit" disabled={!!busy[d.id] || !requests[d.id]?.trim()}>Change</button>
+      </form>
+      <div class="row hints">
+        {#if before[d.id]}
+          <span class="muted small">Changed: “{before[d.id].request}”</span>
+          <button class="ghost small" disabled={!!busy[d.id]} onclick={() => undo(d)}>Undo</button>
+        {:else}
+          {#each SUGGESTIONS as s}
+            <button class="chip" disabled={!!busy[d.id]} onclick={() => change(d, s)}>{s}</button>
+          {/each}
+        {/if}
       </div>
     </section>
   {:else}
@@ -284,6 +334,26 @@
     width: 100%;
     font-family: var(--font-read);
     resize: vertical;
+  }
+  .ask {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+  }
+  .ask input {
+    flex: 1;
+  }
+  .hints {
+    margin-top: 0.4rem;
+    gap: 0.4rem;
+  }
+  .chip {
+    font-size: 0.8rem;
+    padding: 0.15em 0.7em;
+    border-radius: 999px;
+  }
+  .small {
+    font-size: 0.85rem;
   }
   .actions {
     margin-top: 0.4rem;

@@ -52,3 +52,13 @@ plus a definition field. Other users' note types will differ, so a fixed layout 
 - The AI can get readings wrong; the tokenizer's sentence reading is given as a hint and the user
   sees the card before it's added (unless they turn on adding without the list).
 - Drafts live in Ankura's database (schema v5), so the list survives restarts.
+
+## Update 2026-10-29: change a card on request
+
+Owner's request: while checking cards, quickly ask the AI for a specific change (for ほど: an
+example of ほど…ない instead of the meaning on the card). Each draft has a request box
+(`cards::revise`, command `card_change`): the AI gets the facts (word, dictionary entries,
+sentence reading), the current sentence and fields, known words and the request, and returns the
+sentence and all fields in the same format (made-up audio/images removed). A draft without fields
+changes only its sentence and is then filled as usual. Undo restores the previous version
+(`card_restore`). Source label "changed with AI".

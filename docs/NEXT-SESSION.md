@@ -92,7 +92,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `llm.rs` | Anthropic Messages (raw HTTPS, `anthropic-version: 2026-10-21`, `output_config` format+effort, `fallbacks: "default"`) and OpenRouter |
 | `generate.rs` | `prepare` / `check_draft` / `feedback` / `save`, shared by the automatic loop (`generate_text`: retries, best attempt saved) and copy & paste (`chat_prompt`, `parse_answer` lenient, `submit_answer`); `simplify_sentence` |
 | `anki.rs` | `AnkiSource` trait, AnkiConnect client with an action allow-list (add-only writes: `canAddNotesWithErrorDetail`, `addNote`), in-process fake for tests |
-| `cards.rs` | Card drafts (ADR 0012): `new_sentence` (i+1, checked, retried), `fill_fields` (AI copies the three newest notes of the chosen type), `drafts_for_text`, `add_to_anki` (tag `ankura`) |
+| `cards.rs` | Card drafts (ADR 0012): `new_sentence` (i+1, checked, retried), `fill_fields` (AI copies the three newest notes of the chosen type), `revise` (change on request), `drafts_for_text`, `add_to_anki` (tag `ankura`) |
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |

@@ -440,7 +440,7 @@ export interface CardDraft {
   key: WordKey;
   display: string;
   sentence: string;
-  sentence_source: "text" | "new";
+  sentence_source: "text" | "new" | "changed";
   text_id: string | null;
   /** Anki field → value, once filled. */
   fields: Record<string, string> | null;
@@ -569,6 +569,9 @@ export const api = {
   cardsForText: (textId: string) => invoke<CardDraft[]>("cards_for_text", { textId }),
   cardFill: (id: string) => invoke<CardDraft>("card_fill", { id }),
   cardNewSentence: (id: string) => invoke<CardDraft>("card_new_sentence", { id }),
+  cardChange: (id: string, request: string) => invoke<CardDraft>("card_change", { id, request }),
+  cardRestore: (id: string, sentence: string, source: string, fields: Record<string, string> | null) =>
+    invoke<CardDraft>("card_restore", { id, sentence, source, fields }),
   cardSetFields: (id: string, fields: Record<string, string>) => invoke<void>("card_set_fields", { id, fields }),
   cardDiscard: (id: string) => invoke<void>("card_discard", { id }),
   cardAdd: (id: string) => invoke<CardDraft>("card_add", { id }),

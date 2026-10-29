@@ -43,6 +43,13 @@ You can edit every field. **New sentence** replaces the sentence and fills the c
 **Fill in again** just asks the AI again. Untick cards you want to keep for later, and press
 **Add to Anki**.
 
+**Change a card by asking the AI.** Under each card, type what you want different and press
+Enter or **Change**: "an example with ほど…ない", "use the kanji spelling", "a sentence about
+cooking", "shorter definition". The AI changes the sentence and every field that depends on it
+(the marked word, the reading, the meaning), in your card's format, and leaves the rest alone. The
+buttons below the box are common requests in one click. **Undo** puts the card back as it was
+before the last change.
+
 Turn on **Add cards to Anki straight away** in Settings to skip the list.
 
 ## Safe for your collection

@@ -107,6 +107,11 @@ class Handler(BaseHTTPRequestHandler):
                                {"question": "会社までどのぐらいかかりますか。", "options": ["三十分", "一時間", "十分", "二時間"], "answer": 0}]}
                 for i in range(3)
             ]}
+        elif set(props) == {"sentence", "fields"}:
+            # A card changed on request: a new sentence, every field marked as changed.
+            names = list(body["output_config"]["format"]["schema"]["properties"]["fields"]["properties"])
+            answer = {"sentence": "今日は昨日ほど寒くない。",
+                      "fields": {n: ("今日は昨日<b>ほど</b>寒くない。" if "sentence" in n.lower() else f"changed {n}") for n in names}}
         elif props == ["practice_items"]:
             answer = practice_items(prompt)
         elif props == ["order_items"]:

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::anki::{AnkiSource, NewNote};
@@ -200,6 +200,58 @@ fn facts(store: &Store, tok: &dyn Tokenizer, d: &CardDraft) -> Result<String> {
     Ok(f)
 }
 
+// --- changing a card on request ---
+
+const REVISE_SYSTEM: &str = "You change an Anki card for a Japanese learner as they ask. Change only what the request \
+needs. When the sentence changes, write a natural new sentence that uses the word as the request says, preferring \
+words the learner knows, and update every field that depends on the sentence (the sentence with the word marked, its \
+reading, its translation, the meaning that fits). Keep the format of each field exactly: HTML such as <b> and <br>, \
+the language and the amount of detail. Take readings and meanings from the facts; don't guess.";
+
+/// A card after a change the learner asked for.
+#[derive(Debug, Clone, Serialize)]
+pub struct Revision {
+    pub sentence: String,
+    /// None when the card had no fields yet.
+    pub fields: Option<BTreeMap<String, String>>,
+}
+
+/// Changes a draft as the learner asks ("use the ほど…ない pattern"): its sentence and, if it has
+/// them, its fields, in the same format.
+pub fn revise(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, draft: &CardDraft, request: &str) -> Result<Revision> {
+    let request = request.trim();
+    if request.is_empty() {
+        return Err(Error::Llm("say what to change".into()));
+    }
+    let known = store.known_lemmas(&draft.key.lang, KNOWN_SAMPLE)?;
+    let mut prompt = format!("Facts:\n{}", facts(store, tok, draft)?);
+    let mut props = serde_json::Map::new();
+    props.insert("sentence".into(), json!({"type": "string"}));
+    let names: Vec<String> = draft.fields.as_ref().map(|f| f.keys().cloned().collect()).unwrap_or_default();
+    if let Some(fields) = &draft.fields {
+        prompt.push_str("\nThe card's fields now:\n");
+        for (k, v) in fields {
+            prompt.push_str(&format!("- {k}: {v}\n"));
+        }
+        let fp: serde_json::Map<String, Value> = names.iter().map(|f| (f.clone(), json!({"type": "string"}))).collect();
+        props.insert("fields".into(), json!({"type": "object", "properties": fp, "required": names, "additionalProperties": false}));
+    }
+    prompt.push_str(&format!("\nWords the learner knows well:\n{}\n\nThe learner asks: {request}\n", known.join("、")));
+    let required: Vec<&str> = props.keys().map(String::as_str).collect();
+    let schema = json!({"type": "object", "properties": props, "required": required, "additionalProperties": false});
+    let v = llm.json(REVISE_SYSTEM, &prompt, &schema)?;
+    let sentence = v["sentence"].as_str().map(str::trim).filter(|x| !x.is_empty()).unwrap_or(&draft.sentence).to_string();
+    let fields = draft.fields.as_ref().map(|old| {
+        old.iter()
+            .map(|(k, was)| {
+                let value = v["fields"][k].as_str().map(|x| MEDIA.replace_all(x, "").trim().to_string());
+                (k.clone(), value.unwrap_or_else(|| was.clone()))
+            })
+            .collect()
+    });
+    Ok(Revision { sentence, fields })
+}
+
 /// Fills a draft's fields for the chosen note type, copying the style of its newest notes.
 pub fn fill_fields(
     store: &Store,
@@ -361,6 +413,46 @@ mod tests {
 
     fn kasa() -> WordKey {
         WordKey { lang: "ja".into(), lemma: "傘".into(), reading: "かさ".into() }
+    }
+
+    #[test]
+    fn changes_a_card_as_asked() {
+        let Some(t) = sudachi() else { return };
+        let s = store_with_known(&[("店", "みせ")]);
+        let mut fields = BTreeMap::new();
+        fields.insert("Original Sentence".to_string(), "その店は驚く<b>ほど</b>人気がある。".to_string());
+        fields.insert("Definition".to_string(), "extent".to_string());
+        let d = CardDraft {
+            id: "d1".into(),
+            key: WordKey { lang: "ja".into(), lemma: "ほど".into(), reading: "ほど".into() },
+            display: "ほど".into(),
+            sentence: "その店は驚くほど人気がある。".into(),
+            sentence_source: "new".into(),
+            text_id: None,
+            fields: Some(fields),
+            status: "draft".into(),
+            note_id: None,
+            created_at: 0,
+        };
+        let llm = ScriptedLlm::new(vec![json!({
+            "sentence": "今日は昨日ほど寒くない。",
+            "fields": {"Original Sentence": "今日は昨日<b>ほど</b>寒くない。[sound:x.mp3]", "Definition": "(not) as … as"}
+        })]);
+        let r = revise(&s, t, &llm, &d, "use the ほど…ない pattern").unwrap();
+        assert_eq!(r.sentence, "今日は昨日ほど寒くない。");
+        let f = r.fields.unwrap();
+        assert_eq!(f["Original Sentence"], "今日は昨日<b>ほど</b>寒くない。", "no made-up audio");
+        assert_eq!(f["Definition"], "(not) as … as");
+        let prompts = llm.prompts.lock().unwrap();
+        let (p, schema) = &prompts[0];
+        assert!(p.contains("The learner asks: use the ほど…ない pattern") && p.contains("- Definition: extent") && p.contains("店"), "{p}");
+        assert_eq!(schema["required"], json!(["sentence", "fields"]));
+        drop(prompts);
+        // A card without fields yet: only the sentence changes.
+        let bare = CardDraft { fields: None, ..d };
+        let llm = ScriptedLlm::new(vec![json!({"sentence": "これほど簡単なことはない。"})]);
+        let r = revise(&s, t, &llm, &bare, "ほど…ない").unwrap();
+        assert_eq!((r.sentence.as_str(), r.fields), ("これほど簡単なことはない。", None));
     }
 
     #[test]

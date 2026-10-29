@@ -1055,6 +1055,43 @@ async fn card_fill(app: AppHandle, id: String) -> CmdResult<CardDraft> {
     blocking(app, move |s| fill_and_maybe_add(s, &id)).await
 }
 
+/// Changes a draft as the learner asks ("use the ほど…ない pattern"): its sentence and fields.
+#[tauri::command]
+async fn card_change(app: AppHandle, id: String, request: String) -> CmdResult<CardDraft> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let store = s.own_store()?;
+        let d = store.card_draft(&id).map_err(err)?.ok_or("This card is no longer in the list.")?;
+        let r = cards::revise(&store, tok.as_ref(), &s.llm()?, &d, &request).map_err(err)?;
+        store.set_card_sentence(&id, &r.sentence, "changed").map_err(err)?;
+        if let Some(fields) = &r.fields {
+            store.set_card_fields(&id, fields).map_err(err)?;
+        }
+        store.card_draft(&id).map_err(err)?.ok_or_else(|| "This card is no longer in the list.".into())
+    })
+    .await
+}
+
+/// Puts a draft back as it was before a change (undo).
+#[tauri::command]
+async fn card_restore(
+    app: AppHandle,
+    id: String,
+    sentence: String,
+    source: String,
+    fields: Option<BTreeMap<String, String>>,
+) -> CmdResult<CardDraft> {
+    blocking(app, move |s| {
+        let store = s.store();
+        store.set_card_sentence(&id, &sentence, &source).map_err(err)?;
+        if let Some(fields) = &fields {
+            store.set_card_fields(&id, fields).map_err(err)?;
+        }
+        store.card_draft(&id).map_err(err)?.ok_or_else(|| "This card is no longer in the list.".into())
+    })
+    .await
+}
+
 #[tauri::command]
 async fn card_new_sentence(app: AppHandle, id: String) -> CmdResult<CardDraft> {
     blocking(app, move |s| {
@@ -1202,6 +1239,8 @@ pub fn run() {
             cards_for_text,
             card_fill,
             card_new_sentence,
+            card_change,
+            card_restore,
             card_set_fields,
             card_discard,
             card_add,
