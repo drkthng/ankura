@@ -740,6 +740,80 @@ async fn test_finish(app: AppHandle, test_id: String) -> CmdResult<proficiency::
     blocking(app, move |s| proficiency::finish(&s.store(), &test_id).map_err(err)).await
 }
 
+// --- simpler versions of a text (ADR 0021) ---
+
+#[tauri::command]
+async fn adapt_plan(app: AppHandle, text_id: String) -> CmdResult<ankura_core::adapt::Plan> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let store = s.store();
+        let text = store.open_text(&text_id).map_err(err)?.ok_or("This text no longer exists.")?;
+        ankura_core::adapt::plan(&store, tok.as_ref(), &text.body).map_err(err)
+    })
+    .await
+}
+
+/// Writes one version of the plan shown to the learner.
+#[tauri::command]
+async fn adapt_write(app: AppHandle, text_id: String, plan: ankura_core::adapt::Plan, part: usize) -> CmdResult<GenerateResult> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let llm = s.llm()?;
+        ankura_core::adapt::write_version(&s.own_store()?, tok.as_ref(), &llm, &text_id, &plan, part).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn adapt_status(app: AppHandle, text_id: String) -> CmdResult<ankura_core::adapt::Status> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        ankura_core::adapt::status(&s.store(), tok.as_ref(), &text_id).map_err(err)
+    })
+    .await
+}
+
+/// More versions for the new words no version uses yet.
+#[tauri::command]
+async fn adapt_missing(app: AppHandle, text_id: String) -> CmdResult<Vec<GenerateResult>> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let llm = s.llm()?;
+        ankura_core::adapt::write_missing(&s.own_store()?, tok.as_ref(), &llm, &text_id).map_err(err)
+    })
+    .await
+}
+
+// --- help with a sentence and a word (ADR 0020) ---
+
+/// The sentence's translation in its context, with what the word means there.
+#[tauri::command]
+async fn sentence_translate(
+    app: AppHandle,
+    sentence: String,
+    context: String,
+    key: Option<WordKey>,
+    display: Option<String>,
+) -> CmdResult<ankura_core::explain::Translation> {
+    blocking(app, move |s| {
+        let llm = s.llm()?;
+        let word = key.as_ref().map(|k| (k, display.as_deref().unwrap_or(&k.lemma)));
+        ankura_core::explain::translate(&s.own_store()?, &llm, &sentence, &context, word).map_err(err)
+    })
+    .await
+}
+
+/// The word's meaning in this sentence, explained in simple Japanese.
+#[tauri::command]
+async fn word_explain_ja(app: AppHandle, key: WordKey, display: String, sentence: String) -> CmdResult<ankura_core::explain::JaExplanation> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        let llm = s.llm()?;
+        ankura_core::explain::explain_ja(&s.own_store()?, tok.as_ref(), &llm, &key, &display, &sentence).map_err(err)
+    })
+    .await
+}
+
 // --- the daily session, serial stories, questions after a text (ADR 0019) ---
 
 #[derive(Serialize)]
@@ -1276,6 +1350,12 @@ pub fn run() {
             test_grammar,
             test_reading,
             test_finish,
+            adapt_plan,
+            adapt_write,
+            adapt_status,
+            adapt_missing,
+            sentence_translate,
+            word_explain_ja,
             today_overview,
             today_new_words,
             today_save,

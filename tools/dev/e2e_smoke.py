@@ -384,6 +384,7 @@ def main():
         # Correct a reading in this text (毎朝 まいあさ → まいちょう), then reset it.
         ruby = "return [...document.querySelectorAll('.tok')].find(e => e.textContent.startsWith('毎朝'))?.querySelector('rt')?.textContent"
         d.click("//span[contains(@class,'tok') and starts-with(normalize-space(.), '毎朝')]")
+        time.sleep(0.4)  # the pop-up moves once its entry has loaded
         d.click("//div[@role='dialog']//button[contains(@class,'fix')]")
         time.sleep(0.4)  # the pop-up moves to fit the reading fixer; a click mid-move hits another chip
         d.click("//div[@role='dialog']//section[contains(@class,'fixer')]//button[normalize-space()='まいちょう']")
@@ -394,6 +395,7 @@ def main():
             time.sleep(0.3)
         assert d.js(ruby) == "まいちょう", d.js(ruby)
         d.click("//span[contains(@class,'tok') and starts-with(normalize-space(.), '毎朝')]")
+        time.sleep(0.4)  # the pop-up moves once its entry has loaded
         d.click("//div[@role='dialog']//button[contains(@class,'fix')]")
         time.sleep(0.4)
         d.click("//div[@role='dialog']//button[normalize-space()='Reset']")
@@ -661,6 +663,36 @@ def main():
         eps = d.invoke("series_list")[0]["episodes"]
         print("episodes:", [(e["episode"], e["targets"]) for e in eps])
         assert len(eps) == 2 and eps[1]["episode"] == 2 and any(t in eps[1]["targets"] for t in ep1), eps
+
+        # Help with a sentence and a word (ADR 0020), then simpler versions of a hard text (ADR 0021).
+        d.click("//nav//button[normalize-space()='Library']")
+        d.click("//button[contains(@class,'open')][contains(., '駅の朝')]")
+        d.click("//span[contains(@class,'tok') and contains(., 'ぬいぐるみ')]")
+        d.click("//div[@role='dialog']//button[normalize-space()='Translate this sentence']")
+        tr = d.text("//div[@role='dialog']//p[contains(@class,'translation')]", timeout=60)
+        d.click("//div[@role='dialog']//button[@role='tab' and normalize-space()='日本語']")
+        ja = d.text("//div[@role='dialog']//p[contains(@class,'explain')]", timeout=60)
+        print("translation:", tr, "| 日本語:", ja)
+        assert "umbrella" in tr and "意味" in ja, (tr, ja)
+        d.shot(out / "16d-translate-ja.png")
+        d.js("document.querySelector('.backdrop').click()")
+        d.click("//section[contains(@class,'adapt')]//button[contains(., 'the plan')]")
+        planned = d.js("return document.querySelectorAll('.adapt ol.plan li').length")
+        d.shot(out / "16e-adapt-plan.png")
+        d.click("//section[contains(@class,'adapt')]//button[starts-with(normalize-space(), 'Write')]")
+        for _ in range(240):
+            n = d.js("return document.querySelectorAll('.adapt ul.versions li').length")
+            if n >= planned and not d.js("return /Writing/.test(document.querySelector('.adapt')?.textContent ?? '')"):
+                break
+            time.sleep(0.5)
+        original = next(t for t in d.invoke("list_texts") if t["title"] == "駅の朝")
+        status = d.invoke("adapt_status", {"textId": original["id"]})
+        print("simpler versions:", planned, "planned,", n, "written; not used yet:", status["missing"])
+        assert planned >= 1 and n == planned, (planned, n)
+        d.click("(//section[contains(@class,'adapt')]//ul[contains(@class,'versions')]//button)[1]")
+        d.find("//p[contains(., 'Simpler version 1 of')]")
+        d.click("//button[normalize-space()='open the original']")
+        d.find("//h1[contains(@class,'title') and normalize-space()='駅の朝']")
 
         # The guides inside the app: the learning guide first, links between pages.
         d.click("//nav//button[normalize-space()='How to learn']")

@@ -1,10 +1,12 @@
 //! Ankura's engine. No UI, Tauri or platform code lives here (ADR 0009), so the Android app can
 //! reuse it later.
 
+pub mod adapt;
 pub mod anki;
 pub mod cards;
 pub mod counters;
 pub mod dict;
+pub mod explain;
 pub mod furigana;
 pub mod generate;
 pub mod interests;

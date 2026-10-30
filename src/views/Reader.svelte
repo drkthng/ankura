@@ -8,6 +8,8 @@
     type ReaderDoc,
     type ReaderToken,
     type TextExtra,
+    type AdaptPlan,
+    type AdaptStatus,
     type TextMeta,
     type WordState,
   } from "../lib/api";
@@ -20,15 +22,20 @@
     id,
     onback,
     oncards,
+    onopen = () => {},
     today = null,
   }: {
     id: string;
     onback: () => void;
     oncards: () => void;
+    /** Opens another text (a simpler version, the original). */
+    onopen?: (id: string) => void;
     /** Opened from Today (ADR 0019): the session's steps, and how to report one done. */
     today?: { done: string[]; onstep: (step: string) => void } | null;
   } = $props();
   let showQuiz = $state(false);
+
+
   const step = (s: string) => today?.onstep(s);
   const stepDone = (s: string) => !!today?.done.includes(s);
 
@@ -56,8 +63,50 @@
   let doc = $state<ReaderDoc | null>(null);
   let error = $state("");
   /** `at`: index of the sentence in `sentences`, to listen from there. */
-  let selected = $state<{ token: ReaderToken; rect: DOMRect; sentence: string; at: number } | null>(null);
+  let selected = $state<{ token: ReaderToken; rect: DOMRect; sentence: string; at: number; context: string } | null>(null);
 
+  // --- simpler versions of a text that is too hard (ADR 0021) ---
+  let adapt = $state<AdaptStatus | null>(null);
+  let plan = $state<AdaptPlan | null>(null);
+  let showPlan = $state(false);
+  let writing = $state("");
+  let adaptError = $state("");
+  onMount(() => {
+    api.adaptStatus(id).then((s) => (adapt = s)).catch(() => {});
+  });
+  const tooHard = $derived(!!doc && doc.coverage.ratio < 0.95 && !extra?.adapted_from && !extra?.series);
+  $effect(() => {
+    if (tooHard && !plan) api.adaptPlan(id).then((p) => (plan = p)).catch(() => {});
+  });
+  async function writeVersions() {
+    if (!plan) return;
+    adaptError = "";
+    try {
+      const done = new Set(adapt?.versions.map((v) => v.part) ?? []);
+      for (const v of plan.versions) {
+        if (done.has(v.part)) continue;
+        writing = `Writing version ${v.part} of ${plan.versions.length}…`;
+        await api.adaptWrite(id, plan, v.part);
+        adapt = await api.adaptStatus(id);
+      }
+    } catch (e) {
+      adaptError = String(e);
+    } finally {
+      writing = "";
+    }
+  }
+  async function writeMissing() {
+    adaptError = "";
+    writing = "Writing a version for the missing words…";
+    try {
+      await api.adaptMissing(id);
+      adapt = await api.adaptStatus(id);
+    } catch (e) {
+      adaptError = String(e);
+    } finally {
+      writing = "";
+    }
+  }
   onMount(async () => {
     try {
       const r = await api.openText(id);
@@ -134,7 +183,8 @@
     const j = para.indexOf(token);
     const sentence = sentenceAround(para, j);
     const at = sentIndex[doc.paragraphs.indexOf(para)]?.[j] ?? 0;
-    selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect(), sentence, at };
+    const context = para.map((t) => t.surface).join("");
+    selected = { token, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect(), sentence, at, context };
     pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
   }
 
@@ -161,7 +211,7 @@
       sel.removeAllRanges();
       const pi = p ? Number(p.dataset.p) : -1;
       const at = Math.max(0, sentences.findIndex((x) => x.p === pi && x.text.includes(text)));
-      selected = { token, rect, sentence, at };
+      selected = { token, rect, sentence, at, context: paraText };
       pending.push({ kind: "lookup", key: token.key, text_id: id, display: token.dictionary_form });
     } catch (e) {
       error = String(e);
@@ -357,6 +407,54 @@
       <CoverageBar coverage={doc.coverage} />
       <p class="muted tip">Tip: drag across several words to look them up as one phrase. <kbd>P</kbd> reads the text aloud.</p>
       {#if playState !== "idle" && voice}<p class="muted tip">Voice: {voice}</p>{/if}
+      {#if extra?.adapted_from}
+        <p class="muted written">
+          Simpler version {extra.part} of {extra.of} ·
+          <button class="link" onclick={() => onopen(extra!.adapted_from!)}>open the original</button>
+        </p>
+      {/if}
+      {#if tooHard || adapt?.versions.length}
+        <section class="adapt">
+          {#if tooHard && plan}
+            <p>
+              <strong>Too hard right now?</strong>
+              {plan.new_words.length} new word{plan.new_words.length === 1 ? "" : "s"}. Ankura can retell it as
+              {plan.versions.length} simpler text{plan.versions.length === 1 ? "" : "s"} at about 95% known words, which
+              together use every new word of the original.
+              <button class="link" onclick={() => (showPlan = !showPlan)}>{showPlan ? "Hide" : "Show"} the plan</button>
+            </p>
+            {#if showPlan}
+              <ol class="plan">
+                {#each plan.versions as v}<li><span class="jp">{v.words.join("、")}</span></li>{/each}
+              </ol>
+            {/if}
+          {/if}
+          {#if adapt?.versions.length}
+            <p class="muted small">Simpler versions:</p>
+            <ul class="versions">
+              {#each adapt.versions as v}
+                <li><button class="link" onclick={() => onopen(v.text_id)}>{v.part}. {v.title}</button> <span class="muted small jp">{v.targets.join("、")}</span></li>
+              {/each}
+            </ul>
+          {/if}
+          {#if writing}
+            <p class="muted">{writing}</p>
+          {:else}
+            <div class="row">
+              {#if tooHard && plan && (adapt?.versions.length ?? 0) < plan.versions.length}
+                <button class="primary" onclick={writeVersions}>
+                  {adapt?.versions.length ? "Write the rest" : `Write ${plan.versions.length === 1 ? "it" : `the ${plan.versions.length} versions`}`}
+                </button>
+              {/if}
+              {#if adapt?.missing.length}
+                <span class="muted small">Not used yet: <span class="jp">{adapt.missing.join("、")}</span></span>
+                <button onclick={writeMissing}>Write a version for them</button>
+              {/if}
+            </div>
+          {/if}
+          {#if adaptError}<p class="error small">{adaptError}</p>{/if}
+        </section>
+      {/if}
       {#if extra?.episode}<p class="muted written">Episode {extra.episode} of a serial story</p>{/if}
       {#if today}
         <div class="session">
@@ -443,6 +541,7 @@
     onmark={mark}
     ondontknow={dontKnow}
     sentence={selected.sentence}
+    context={selected.context}
     textId={id}
     onlisten={() => {
       const at = selected?.at ?? 0;
@@ -482,6 +581,35 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .adapt {
+    margin-top: 0.8rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .adapt p {
+    margin: 0.2rem 0;
+  }
+  .plan,
+  .versions {
+    margin: 0.3rem 0;
+    padding-left: 1.4rem;
+  }
+  .jp {
+    font-family: var(--font-read);
+  }
+  .link {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .small {
+    font-size: 0.85rem;
   }
   .session {
     display: flex;

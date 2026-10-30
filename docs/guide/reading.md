@@ -29,7 +29,15 @@ all its parts. Turn colours off with the **Colours** switch.
 ## The word pop-up
 
 Click a word to see its reading, meanings from your dictionaries, what Anki knows about it, and
-how often you've seen and looked it up. Then:
+how often you've seen and looked it up.
+
+**English | 日本語** switches the meaning between English and Japanese; Ankura remembers your
+choice. 日本語 shows a short explanation in simple Japanese of what the word means *in this
+sentence*, written by the AI with words you know where possible (furigana on the ones you don't),
+and entries from any Japanese-Japanese dictionary you imported. The explanation is kept, so
+switching back later costs no AI request.
+
+Then:
 
 - **I don't know this:** remembers that you struggled with it. Such words show up as suggestions
   in [Write for me](write-for-me.md) and on the [Cards](cards.md) screen.
@@ -60,10 +68,37 @@ as one word wherever it appears, also conjugated (気になって).
 
 ## Help with a sentence
 
-**Simplify this sentence** in the pop-up asks the AI to rewrite the sentence with words you know.
-Ankura checks the result and asks once more if it still has too many unknown words. You see the
-simpler version with furigana on the words you don't know yet, and the English translation only
-when you click **Show translation**. This needs the AI ([AI setup](ai.md)).
+**Translate this sentence** in the pop-up gives an English translation that fits the text around
+it (who does what, what refers to what), plus a line on what the word you clicked means in this
+sentence, the way it would go on a card. Translations are kept: asking again is instant.
+
+**Simplify this sentence** asks the AI to rewrite the sentence with words you know. Ankura checks
+the result and asks once more if it still has too many unknown words. You see the simpler version
+with furigana on the words you don't know yet, and the English translation only when you click
+**Show translation**. Both need the AI ([AI setup](ai.md)).
+
+## Too hard? Simpler versions
+
+![A text at 65% known words: the plan for seven simpler versions and their new words](../img/simpler-versions.png)
+
+Texts below 95% known words are hard to learn from. For such a text, the reader offers to retell
+it as simpler texts:
+
+- Ankura lists the text's new words in order and splits them into groups, about 5% of a version's
+  words each (2-8 words). **Show the plan** shows which words go into which version. No AI is
+  used for the plan.
+- **Write the versions** has the AI retell the text, or one part of a long text, once per group:
+  same content, events and order, in simpler Japanese, using that group's words in the meaning
+  they have in the original. Each version is checked like Write for me's texts (about 95% known
+  words) and saved in your library.
+- Taken together, the versions use every new word of the original. If the AI leaves a word out,
+  the reader says which and offers **Write a version for them**.
+- Each version links back to the original. Read the versions, then the original: by then most of
+  its new words have come up once already.
+
+A short text with many new words gets many versions, each a retelling of the same story with
+other words. That is fine for learning (the same content read again, with new words each time),
+but you can also stop after a few and simply read the original.
 
 ## Listening
 

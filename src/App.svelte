@@ -85,6 +85,7 @@
           id={view.id}
           onback={() => (view = { name: view.name === "reader" && view.today ? "today" : "library" })}
           oncards={() => (view = { name: "cards" })}
+          onopen={(id: string) => (view = { name: "reader", id })}
           today={view.today
             ? {
                 done: todayDone,

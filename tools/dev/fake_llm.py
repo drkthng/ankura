@@ -180,6 +180,12 @@ class Handler(BaseHTTPRequestHandler):
             n = (re.search(r"episode (\d+) of", prompt) or [None, "1"])[1]
             answer = draft(prompt) | {"title": f"第{n}話", "summary": f"Episode {n}: a rainy day at the station.",
                                       "bible": "Yuki (ゆき), an office worker; Tama, her cat."}
+        elif set(props) == {"translation", "word_note"}:
+            word = (re.search(r"^Word: (\S+)", prompt, re.M) or [None, ""])[1]
+            answer = {"translation": "I had forgotten my umbrella, but there was no time, so I hurried to the station.",
+                      "word_note": f"{word}: as used in this sentence" if word else ""}
+        elif props == ["explanation"]:
+            answer = {"explanation": "雨の日に使うものという意味。"}
         elif props == ["questions"]:
             # Questions after a text: two comprehension questions and a cloze per target word.
             m = re.search(r"for each of these target words: (.+?)\.", prompt)

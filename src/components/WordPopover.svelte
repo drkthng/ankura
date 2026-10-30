@@ -14,6 +14,7 @@
     textId = null,
     onreading = () => {},
     onlisten,
+    context = "",
   }: {
     token: ReaderToken;
     anchor: DOMRect;
@@ -27,7 +28,66 @@
     onreading?: () => void;
     /** Read the text aloud from this word's sentence (ADR 0017). */
     onlisten?: () => void;
+    /** The paragraph around the sentence, for a translation that fits (ADR 0020). */
+    context?: string;
   } = $props();
+
+  let info = $state<WordInfo | null>(null);
+
+  // --- meanings in English or in simple Japanese (ADR 0020) ---
+  const pref = (): "en" | "ja" => {
+    try {
+      return localStorage.getItem("ankura.meaning_lang") === "ja" ? "ja" : "en";
+    } catch {
+      return "en";
+    }
+  };
+  let lang = $state<"en" | "ja">(pref());
+  let ja = $state<{ text: string; tokens: ReaderToken[]; coverage: number } | null>(null);
+  let jaBusy = $state(false);
+  let jaError = $state("");
+  const JA = /[\u3040-\u30ff]/;
+  /** Entries from dictionaries that explain in Japanese (a monolingual Yomitan dictionary). */
+  const jaEntries = $derived((info?.entries ?? []).filter((e) => e.senses.length && e.senses.filter((s) => JA.test(s)).length * 2 >= e.senses.length));
+  const enEntries = $derived((info?.entries ?? []).filter((e) => !jaEntries.includes(e)));
+  async function setLang(l: "en" | "ja") {
+    lang = l;
+    try {
+      localStorage.setItem("ankura.meaning_lang", l);
+    } catch {}
+    if (l === "ja") loadJa();
+    requestAnimationFrame(place);
+  }
+  async function loadJa() {
+    if (ja || jaBusy || !token.key) return;
+    jaBusy = true;
+    jaError = "";
+    try {
+      ja = await api.wordExplainJa(token.key, token.dictionary_form, sentence);
+      requestAnimationFrame(place);
+    } catch (e) {
+      jaError = String(e);
+    } finally {
+      jaBusy = false;
+    }
+  }
+
+  // --- the sentence translated in its context ---
+  let translation = $state<{ translation: string; word_note: string } | null>(null);
+  let translating = $state(false);
+  let translateError = $state("");
+  async function translate() {
+    translating = true;
+    translateError = "";
+    try {
+      translation = await api.sentenceTranslate(sentence, context, token.key, token.dictionary_form);
+      requestAnimationFrame(place);
+    } catch (e) {
+      translateError = String(e);
+    } finally {
+      translating = false;
+    }
+  }
 
   // --- listening: the word from its reading in kana, so a lone kanji isn't misread ---
   let speakError = $state("");
@@ -96,7 +156,6 @@
     }
   }
 
-  let info = $state<WordInfo | null>(null);
   let error = $state("");
   let el: HTMLDivElement | undefined = $state();
   let pos = $state({ left: 0, top: 0 });
@@ -104,6 +163,7 @@
   onMount(() => {
     if (token.key) {
       api.wordInfo(token.key, token.dictionary_form).then((i) => (info = i), (e) => (error = String(e)));
+      if (lang === "ja") loadJa();
     }
     place();
   });
@@ -123,8 +183,8 @@
   });
 
   const key = $derived(token.key!);
-  const best = $derived(info?.entries[0]);
-  const others = $derived(info?.entries.slice(1, 4) ?? []);
+  const best = $derived(enEntries[0]);
+  const others = $derived(enEntries.slice(1, 4));
   const isMarked = $derived(token.source === "mark");
 </script>
 
@@ -174,7 +234,29 @@
 
   {#if error}<p class="error">{error}</p>{/if}
 
-  {#if info}
+  <div class="langs" role="tablist" aria-label="Meaning in">
+    <button role="tab" class:on={lang === "en"} aria-selected={lang === "en"} onclick={() => setLang("en")}>English</button>
+    <button role="tab" class:on={lang === "ja"} aria-selected={lang === "ja"} onclick={() => setLang("ja")}>日本語</button>
+  </div>
+
+  {#if lang === "ja"}
+    <section class="ja-meaning">
+      {#each jaEntries.slice(0, 2) as e}
+        <p class="jp"><strong>{e.expression}</strong> 【{e.reading}】 {e.senses.slice(0, 3).join(" / ")}</p>
+      {/each}
+      {#if ja}
+        <p class="jp explain">
+          {#each ja.tokens as t}{#each t.segments as g}{#if g.ruby && t.key && !familiar(t)}<ruby>{g.text}<rt>{g.ruby}</rt></ruby>{:else}{g.text}{/if}{/each}{/each}
+        </p>
+        <p class="muted small">やさしい説明 (AI, for this sentence) · {Math.round(ja.coverage * 100)}% words you know</p>
+      {:else if jaBusy}
+        <p class="muted">やさしい説明を書いています…</p>
+      {/if}
+      {#if jaError}<p class="error small">{jaError}</p>{/if}
+    </section>
+  {/if}
+
+  {#if info && lang === "en"}
     {#if best}
       <ol class="senses">
         {#each best.senses.slice(0, 5) as s}<li>{s}</li>{/each}
@@ -190,6 +272,8 @@
         {/each}
       </details>
     {/if}
+  {/if}
+  {#if info}
     {#if info.readings.length > 1}
       <p class="muted small">Readings in the dictionary: {info.readings.join("、")}</p>
     {/if}
@@ -227,6 +311,15 @@
         </button>
       {/if}
       {#if simpleError}<p class="error small">{simpleError}</p>{/if}
+      {#if translation}
+        <p class="translation">{translation.translation}</p>
+        {#if translation.word_note}<p class="muted small">Here, <strong class="jp">{token.dictionary_form}</strong>: {translation.word_note}</p>{/if}
+      {:else}
+        <button class="ghost" disabled={translating} onclick={translate} title="A translation that fits the text around it">
+          {translating ? "Translating…" : "Translate this sentence"}
+        </button>
+      {/if}
+      {#if translateError}<p class="error small">{translateError}</p>{/if}
       {#if onlisten}<button class="ghost" onclick={onlisten} title="Read the text aloud from this sentence">▶ Listen from here</button>{/if}
       {#if speakError}<p class="error small">{speakError}</p>{/if}
     </section>
@@ -348,6 +441,34 @@
   .small {
     font-size: 0.82rem;
     margin: 0;
+  }
+  .langs {
+    display: inline-flex;
+    align-self: flex-start;
+    width: fit-content;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 0.2rem 0 0.4rem;
+  }
+  .langs button {
+    border: none;
+    border-radius: 0;
+    padding: 0.15em 0.9em;
+    font-size: 0.8rem;
+    background: none;
+  }
+  .langs button.on {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .ja-meaning .explain {
+    font-size: 1.05rem;
+    line-height: 1.9;
+    margin: 0.2rem 0;
+  }
+  .translation {
+    margin: 0.4rem 0 0.2rem;
   }
   .speak {
     border: none;

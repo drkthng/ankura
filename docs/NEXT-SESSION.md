@@ -14,6 +14,10 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 - **JLPT practice tests built** (ADR 0015, 2026-10-27): mock exam per level, full or half, timer,
   pass estimate, review with explanations, report bad questions, cards from missed words, retry.
   Tested with fakes only (core tests + e2e).
+- **Help while reading and simpler versions** (ADR 0020-0021, 2026-10-31): Translate this
+  sentence (in context) and English | 日本語 meanings in the pop-up (`explain.rs`); simpler
+  versions of texts under 95% (`adapt.rs`: plan, write, status, missing words;
+  `GenerateRequest.adapt`). Owner's requests.
 - **Today** (ADR 0019, 2026-10-30): daily session (`today.rs`: practice-word picker for backlog
   rescue, per-day session), serial stories (`series.rs`, episodes via `generate.rs` with
   `GenerateRequest.series`), questions after a text (`quiz.rs`, banked as `text_quiz`); views
@@ -39,7 +43,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   stats over days, interests, reading fixes.
 - Last commit `bee00de` on `main`. Latest Windows installer given to the owner (kanji setup fix):
   https://github.com/drkthng/ankura/actions/runs/40498469483/artifacts/12731158630
-- Tests: 102 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
+- Tests: 106 core tests (`cargo test -p ankura-core`), type-check (`npm run check`), WebDriver e2e
   (`tools/dev/e2e_smoke.py`) covering every screen. All passing.
 - **User docs:** `README.md` links one guide per feature in `docs/guide/`; update the matching
   guide with every user-facing change (CLAUDE.md says so too). Build docs: `docs/DEVELOPING.md`.
@@ -106,7 +110,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0019 in `docs/adr/`. Most relevant now: 0019 (Today, series, questions), 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0021 in `docs/adr/`. Most relevant now: 0021 (simpler versions), 0020 (translation, 日本語 meanings), 0019 (Today, series, questions), 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)

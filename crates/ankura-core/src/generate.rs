@@ -27,6 +27,20 @@ pub struct GenerateRequest {
     /// The serial story this text is the next episode of (ADR 0019).
     #[serde(default)]
     pub series: Option<String>,
+    /// A simpler version of (part of) a text the learner pasted (ADR 0021).
+    #[serde(default)]
+    pub adapt: Option<AdaptOf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdaptOf {
+    /// The original text in the library.
+    pub text_id: String,
+    /// The part of the original to retell.
+    pub source: String,
+    /// Version number, from 1, and how many versions the plan has.
+    pub part: usize,
+    pub of: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,6 +265,15 @@ pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Res
     if let Some(c) = &series {
         prompt.push_str(&c.prompt);
     }
+    if let Some(a) = &req.adapt {
+        prompt.push_str(&format!(
+            "\nThis text is a simpler version of a text the learner wants to read. Retell the original below in simpler \
+Japanese: keep its content, events, facts and order, and leave out only details that would need more unknown words. \
+Use the target words in the meaning they have in the original. Don't add anything that isn't in it. Title: the \
+original's subject, simply.\nOriginal:\n{}\n",
+            a.source.trim()
+        ));
+    }
     Ok(Prepared { req, target_lemmas, prompt, lang, episode: series.map(|c| c.episode) })
 }
 
@@ -288,6 +311,12 @@ pub fn save(store: &Store, prep: &Prepared, draft: &Draft, c: &Check, attempts: 
         "attempts": attempts,
         "examples": draft.examples,
     });
+    if let Some(a) = &prep.req.adapt {
+        extra["adapted_from"] = json!(a.text_id);
+        extra["part"] = json!(a.part);
+        extra["of"] = json!(a.of);
+        extra["missing"] = json!(c.missing);
+    }
     if let (Some(id), Some(n)) = (&prep.req.series, prep.episode) {
         extra["series"] = json!(id);
         extra["episode"] = json!(n);
@@ -557,7 +586,7 @@ mod tests {
             ]),
             prompts: Mutex::new(vec![]),
         };
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false, series: None };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false, series: None, adapt: None };
         let r = generate_text(&s, t, &llm, &req).unwrap();
         assert_eq!(r.attempts, 2);
         assert!(r.missing_targets.is_empty(), "{r:?}");
@@ -589,7 +618,7 @@ mod tests {
             drafts: Mutex::new(vec![episode("猫が石油を見る。", "Tama sees oil."), episode("毎日、猫が石油と傘を見る。", "Tama again.")]),
             prompts: Mutex::new(vec![]),
         };
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 300, polite: false, series: Some(x.id.clone()) };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 300, polite: false, series: Some(x.id.clone()), adapt: None };
         let r1 = generate_text(&s, t, &llm, &req).unwrap();
         let extra = s.open_text(&r1.text.id).unwrap().unwrap().extra.unwrap();
         assert_eq!((extra["series"].as_str(), extra["episode"].as_u64(), extra["summary"].as_str()), (Some(x.id.as_str()), Some(1), Some("Tama sees oil.")));
@@ -619,7 +648,7 @@ mod tests {
             ]),
             prompts: Mutex::new(vec![]),
         };
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 100, polite: true, series: None };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 100, polite: true, series: None, adapt: None };
         let r = generate_text(&s, t, &llm, &req).unwrap();
         assert_eq!(r.attempts, 3);
         assert_eq!(s.open_text(&r.text.id).unwrap().unwrap().body, "猫と石油を分析した。");
@@ -649,7 +678,7 @@ mod tests {
     fn chat_flow_asks_for_a_rewrite_then_saves() {
         let Some(t) = sudachi() else { return };
         let s = store_with_known(&[("猫", "ねこ"), ("好き", "すき"), ("毎日", "まいにち"), ("見る", "みる"), ("日本", "にっぽん")]);
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false, series: None };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false, series: None, adapt: None };
 
         let prompt = chat_prompt(&prepare(&s, t, &req).unwrap());
         assert!(prompt.contains("comprehensible input") && prompt.contains("Target words: 石油") && prompt.contains("\"paragraphs\""));
@@ -705,7 +734,7 @@ mod tests {
         let Some(t) = sudachi() else { return };
         let s = Store::open_in_memory().unwrap();
         let llm = ScriptedLlm { drafts: Mutex::new(vec![]), prompts: Mutex::new(vec![]) };
-        let req = GenerateRequest { targets: vec![" ".into()], topic: String::new(), length: 100, polite: false, series: None };
+        let req = GenerateRequest { targets: vec![" ".into()], topic: String::new(), length: 100, polite: false, series: None, adapt: None };
         assert!(generate_text(&s, t, &llm, &req).is_err());
     }
 }

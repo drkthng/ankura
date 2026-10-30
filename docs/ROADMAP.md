@@ -90,6 +90,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] Today (ADR 0019): daily session with backlog rescue (fading words first), serial stories
       that bring words back, questions after each text.
 
+- [x] Translation in context and meanings in simple Japanese in the pop-up (ADR 0020); simpler
+      versions of texts under 95% that together cover all their new words (ADR 0021).
+
 ## Next: owner's choice
 
 Ranked ideas in `docs/research/feature-ideas.md` (2026-10-30): "Today" daily session, backlog

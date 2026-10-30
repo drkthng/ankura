@@ -115,7 +115,7 @@ handle the backlog in Anki and use Ankura to make the reviews easier:
 | 98% and more | Easy: you rarely stop | Fluency, listening, rereading, fun |
 | 95-97% | Work, but it flows; meanings can be guessed | New practice words (Write for me's default) |
 | 90-95% | Slow and tiring | Short texts you really want to read, with look-ups |
-| Under 90% | Frustrating | Not yet: Simplify sentences, or come back later |
+| Under 90% | Frustrating | Let Ankura write [simpler versions](reading.md#too-hard-simpler-versions) of it, read those first |
 
 With about 1,600 known words, texts for native readers will mostly be at 80-90% for you: Japanese
 needs about 9,000-10,000 words for 95% of a typical native text. That's why Write for me exists.
@@ -123,8 +123,9 @@ Mix in graded readers (Tadoku, free) and NHK News Web Easy: paste them into the 
 check their coverage first. Natural texts also guard against the slightly unnatural phrasing AI
 texts sometimes have.
 
-**Simplify this sentence** (in the word pop-up) is for the one sentence you can't crack, not a
-way to read texts that are too hard.
+**Simplify this sentence** and **Translate this sentence** (in the word pop-up) are for the one
+sentence you can't crack. For a whole text that's too hard, use **simpler versions** (in the
+reader, for texts under 95%).
 
 ## Kanji (RTK)
 

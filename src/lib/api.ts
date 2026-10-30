@@ -175,6 +175,19 @@ export interface GenerateRequest {
   series?: string | null;
 }
 
+// --- simpler versions of a text (ADR 0021) ---
+
+export interface AdaptPlan {
+  coverage: number;
+  new_words: string[];
+  versions: { part: number; source: string; words: string[] }[];
+}
+
+export interface AdaptStatus {
+  versions: { text_id: string; title: string; part: number; of: number; targets: string[] }[];
+  missing: string[];
+}
+
 // --- the daily session, serial stories, questions after a text (ADR 0019) ---
 
 export interface Pick {
@@ -523,6 +536,11 @@ export interface TextExtra {
   coverage: number;
   attempts: number;
   examples: Example[];
+  /** A simpler version of a pasted text (ADR 0021). */
+  adapted_from?: string;
+  part?: number;
+  of?: number;
+  missing?: string[];
   /** An episode of a serial story (ADR 0019). */
   series?: string;
   episode?: number;
@@ -569,6 +587,14 @@ export const api = {
   setApiKey: (provider: Provider, key: string) => invoke<void>("set_api_key", { provider, key }),
   studyWords: () => invoke<StudyWord[]>("study_words"),
   generateText: (request: GenerateRequest) => invoke<GenerateResult>("generate_text", { request }),
+  adaptPlan: (textId: string) => invoke<AdaptPlan>("adapt_plan", { textId }),
+  adaptWrite: (textId: string, plan: AdaptPlan, part: number) => invoke<GenerateResult>("adapt_write", { textId, plan, part }),
+  adaptStatus: (textId: string) => invoke<AdaptStatus>("adapt_status", { textId }),
+  adaptMissing: (textId: string) => invoke<GenerateResult[]>("adapt_missing", { textId }),
+  sentenceTranslate: (sentence: string, context: string, key: WordKey | null, display: string | null) =>
+    invoke<{ translation: string; word_note: string }>("sentence_translate", { sentence, context, key, display }),
+  wordExplainJa: (key: WordKey, display: string, sentence: string) =>
+    invoke<{ text: string; tokens: ReaderToken[]; coverage: number }>("word_explain_ja", { key, display, sentence }),
   todayOverview: () => invoke<TodayOverview>("today_overview", { day: localDay() }),
   todayNewWords: () => invoke<TodaySession>("today_new_words", { day: localDay() }),
   todaySave: (session: TodaySession) => invoke<void>("today_save", { session }),
