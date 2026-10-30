@@ -156,8 +156,12 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
    items, whether the level-drift check drops too much, prompt lengths for long texts. Check
    the bank fills as expected (Settings → AI shows counts; `item_bank` table). Ask the
    owner to report bad questions; they are stored with `reported = 1` in `test_items`.
-2. **Next feature (owner's order):** Italian (CILS) and Spanish (DELE/SIELE) tests (needs the
-   Italian/Spanish tokenizer and lemmatizer of ADR 0001 first). Smaller follow-ups: 発話表現 and
+2. **Next feature:** ask the owner. Candidates: the ranked list in
+   `docs/research/feature-ideas.md` (top: "Today" session, backlog rescue, audio on cards,
+   clipboard/web import, pre-learn, serial stories), or Italian (CILS) and Spanish (DELE/SIELE)
+   (needs the Italian/Spanish tokenizer and lemmatizer of ADR 0001 first). The user-facing
+   learning guide is `docs/guide/learning.md` (shown in the app under "How to learn"; keep it in
+   step with features). Smaller follow-ups: 発話表現 and
    統合理解 listening types, listening in the level check, passing corrected readings to the
    voice, cleaning up old audio files. Ask the owner which comes first. Ask the owner before starting; they may have new requests.
 3. **Known gaps:** incremental Anki sync (`cardsModTime`); context-dependent readings (十分,

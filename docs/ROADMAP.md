@@ -87,6 +87,13 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [ ] Italian (CILS) and Spanish (DELE/SIELE) tests. Research in
       `docs/research/proficiency-tests.md`.
 
+## Next: owner's choice
+
+Ranked ideas in `docs/research/feature-ideas.md` (2026-10-30): "Today" daily session, backlog
+rescue, sentence audio on cards, clipboard/web import, pre-learn a text, serial stories, questions
+after each text, frequency and pitch dictionaries, and more. Italian and Spanish remain the
+owner's stated next language work.
+
 ## M4: Release
 
 - [ ] Installers for Windows, macOS, Linux.

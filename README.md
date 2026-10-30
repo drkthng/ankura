@@ -61,6 +61,10 @@ notes.
    type ("Suggest fields" usually gets it right), check the preview, save, and press **Sync now**.
 5. **Read.** In **Library**, paste a text and start reading.
 6. Optional: **set up the AI** for texts, simpler sentences and cards. → [AI setup](docs/guide/ai.md)
+7. **Read [How to learn with Ankura](docs/guide/learning.md)** (also under **How to learn** in the
+   app): a daily plan, step-by-step sessions, the Anki backlog after a break, and when to test.
+   The evidence is in [Learning research](docs/research/learning-evidence.md); ideas for what
+   comes next in [Feature ideas](docs/research/feature-ideas.md).
 
 ## Your data
 

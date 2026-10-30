@@ -22,16 +22,33 @@
   // The user guides from docs/guide, built into the app: the same files as in the repo.
   import { openUrl } from "@tauri-apps/plugin-opener";
 
-  const files = import.meta.glob("../../docs/guide/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+  const files = import.meta.glob(["../../docs/guide/*.md", "../../docs/research/learning-evidence.md", "../../docs/research/feature-ideas.md"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
   const images = import.meta.glob("../../docs/img/*.png", { query: "?url", import: "default", eager: true }) as Record<string, string>;
 
   /** Guides in reading order; the learning guide first. */
-  const ORDER = ["learning", "reading", "write-for-me", "cards", "kanji", "level-check", "practice-test", "stats", "anki", "ai"];
+  const ORDER = [
+    "learning",
+    "reading",
+    "write-for-me",
+    "cards",
+    "kanji",
+    "level-check",
+    "practice-test",
+    "stats",
+    "anki",
+    "ai",
+    "learning-evidence",
+    "feature-ideas",
+  ];
   const guides = Object.entries(files)
     .map(([path, text]) => {
       const name = path.split("/").pop()!.replace(/\.md$/, "");
       const title = /^#\s+(.+)$/m.exec(text)?.[1] ?? name;
-      return { name, title, text };
+      return { name, title, text, research: path.includes("/research/") };
     })
     .sort((a, b) => (ORDER.indexOf(a.name) + 1 || 99) - (ORDER.indexOf(b.name) + 1 || 99));
 
@@ -42,8 +59,8 @@
   const html = $derived.by(() => {
     const g = guides.find((x) => x.name === current);
     if (!g) return "";
-    // The link back to the README means nothing here.
-    const text = g.text.replace(/^\[← README\]\([^)]*\)\s*$/m, "");
+    // The "← back" link at the top is for reading on GitHub; the list on the left does that here.
+    const text = g.text.replace(/^\[← [^\]]*\]\([^)]*\)\s*$/m, "");
     return marked.parse(text, { async: false }) as string;
   });
 
@@ -79,8 +96,12 @@
 <div class="guide">
   <nav class="toc" aria-label="Guides">
     <p class="muted small">Guides</p>
-    {#each guides as g}
+    {#each guides.filter((g) => !g.research) as g}
       <button class:on={g.name === current} onclick={() => (current = g.name)}>{g.title}</button>
+    {/each}
+    <p class="muted small research">Research</p>
+    {#each guides.filter((g) => g.research) as g}
+      <button class:on={g.name === current} onclick={() => (current = g.name)}>{g.title.split(":")[0]}</button>
     {/each}
   </nav>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
@@ -117,6 +138,9 @@
   .small {
     font-size: 0.8rem;
     margin: 0 0 0.4rem 0.6rem;
+  }
+  .small.research {
+    margin-top: 1.2rem;
   }
   .md {
     overflow-y: auto;

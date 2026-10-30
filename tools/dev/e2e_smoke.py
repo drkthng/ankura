@@ -622,6 +622,21 @@ def main():
         assert after["requests"] == mem["requests"] and after["reused"]["practice_items"] >= 24, after
         d.click("//button[normalize-space()='Pause']")
 
+        # The guides inside the app: the learning guide first, links between pages.
+        d.click("//nav//button[normalize-space()='How to learn']")
+        title = d.text("//article[contains(@class,'md')]//h1")
+        assert title == "How to learn with Ankura", title
+        assert d.js("return document.querySelectorAll('article.md table').length") >= 2
+        d.shot(out / "16a-guide.png")
+        d.click("//article[contains(@class,'md')]//a[normalize-space()='Learning research']")
+        for _ in range(20):
+            title = d.text("//article[contains(@class,'md')]//h1")
+            if title.startswith("Learning research"):
+                break
+            time.sleep(0.2)
+        print("guide:", title)
+        assert title.startswith("Learning research"), title
+
         # Stats: characters read (logged as paragraphs counted as read) and the streak.
         d.click("//nav//button[normalize-space()='Stats']")
         today = d.text("//div[contains(@class,'tile')][.//span[normalize-space()='Read today']]")
