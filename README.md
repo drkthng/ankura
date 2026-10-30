@@ -12,6 +12,9 @@ notes.
 
 ## What it does
 
+- **A daily session in one place.** Today picks six words (fading Anki cards first, then words
+  that keep slipping), writes the next episode of your serial story around them, and walks you
+  through reading, listening, quick questions and cards. → [Today](docs/guide/today.md)
 - **Read with your Anki knowledge.** Words you know stay plain. Words you're learning, new in
   Anki, or not in Anki at all are coloured, so you see at a glance how hard a text is. Furigana
   appear only on words you don't know yet, and a wrong reading is fixed with two clicks.

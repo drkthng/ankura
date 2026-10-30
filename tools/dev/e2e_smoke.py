@@ -622,6 +622,46 @@ def main():
         assert after["requests"] == mem["requests"] and after["reused"]["practice_items"] >= 24, after
         d.click("//button[normalize-space()='Pause']")
 
+        # Today (ADR 0019): today's words, a new serial story, the session in the reader, questions.
+        d.click("//nav//button[normalize-space()='Today']")
+        d.find("//h2[contains(., 'Your words')]")
+        chips = d.js("return [...document.querySelectorAll('.chip .w')].map(e => e.textContent)")
+        print("today's words:", chips)
+        if not chips:
+            d.type("//input[@placeholder='Add a word']", "傘")
+            d.click("//button[normalize-space()='Add']")
+        d.click("//label[contains(., 'Start a new story')]/input")
+        d.type("//input[@placeholder='Story title (optional)']", "駅の猫")
+        d.click("//button[normalize-space()=\"Write today's text\"]")
+        d.find("//div[contains(@class,'session')]", timeout=120)
+        print("episode:", d.text("//p[starts-with(normalize-space(), 'Episode')]"))
+        d.click("//div[contains(@class,'session')]//button[contains(., 'Done reading')]")
+        d.find("//div[contains(@class,'session')]//button[normalize-space()='✓ Read']")
+        d.click("//div[contains(@class,'session')]//button[contains(., 'Questions')]")
+        d.find("//section[contains(@class,'quiz')]//p[contains(@class,'question')]", timeout=60)
+        d.shot(out / "16b-questions.png")
+        for _ in range(10):
+            if d.js("return !!document.querySelector('.quiz .score')"):
+                break
+            d.js("document.querySelector('.quiz .options button')?.click()")
+            time.sleep(0.2)
+            d.js("[...document.querySelectorAll('.quiz > button')].find(b => /Next|result/.test(b.textContent))?.click()")
+            time.sleep(0.3)
+        score = d.text("//section[contains(@class,'quiz')]//p[contains(@class,'score')]")
+        print("questions:", score)
+        d.find("//div[contains(@class,'session')]//button[normalize-space()='✓ Questions']")
+        d.click("//div[contains(@class,'session')]//button[normalize-space()='Back to Today']")
+        d.find("//section[contains(@class,'step') and contains(@class,'complete')][.//h2[contains(., 'Questions')]]")
+        d.shot(out / "16c-today.png")
+        series = d.invoke("series_list")
+        assert len(series) == 1 and len(series[0]["episodes"]) == 1, series
+        ep1 = series[0]["episodes"][0]["targets"]
+        # The next episode brings back words from the first.
+        d.invoke("generate_text", {"request": {"targets": ["猫"], "topic": "", "length": 300, "polite": False, "series": series[0]["series"]["id"]}})
+        eps = d.invoke("series_list")[0]["episodes"]
+        print("episodes:", [(e["episode"], e["targets"]) for e in eps])
+        assert len(eps) == 2 and eps[1]["episode"] == 2 and any(t in eps[1]["targets"] for t in ep1), eps
+
         # The guides inside the app: the learning guide first, links between pages.
         d.click("//nav//button[normalize-space()='How to learn']")
         title = d.text("//article[contains(@class,'md')]//h1")

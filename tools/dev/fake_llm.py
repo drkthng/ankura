@@ -137,17 +137,24 @@ class Handler(BaseHTTPRequestHandler):
         elif props == ["answers"]:
             # The checker: right on grammar and word items; reading questions only with the
             # passage. For ★ items the key is the fragment 前 (options are shuffled).
-            questions = []
+            questions, texts = [], []
             for line in prompt.splitlines():
                 if re.match(r"^\d+\. ", line):
                     questions.append([])
+                    texts.append(line)
                 elif questions and re.match(r"^\s+\d\) ", line):
                     questions[-1].append(line.split(") ", 1)[1])
             sees = any(m in prompt for m in ("Passage:", "Transcript:", "（", "【", "★", "使い方"))
-            answer = {"answers": [
-                {"index": i, "choice": opts.index("前") if "前" in opts else (0 if sees else 1), "ambiguous": False}
-                for i, opts in enumerate(questions)
-            ]}
+
+            def choice(i, opts):
+                if "前" in opts:
+                    return opts.index("前")
+                # Questions about a text: right only when the text is there.
+                if "話の中で" in texts[i]:
+                    return 0 if prompt.startswith("Passage:") else 1
+                return 0 if sees else 1
+
+            answer = {"answers": [{"index": i, "choice": choice(i, opts), "ambiguous": False} for i, opts in enumerate(questions)]}
         elif props == ["topics"]:
             answer = {"topics": ["Railway travel", "Morning routines"]}
         elif props == ["kanji"]:
@@ -168,6 +175,20 @@ class Handler(BaseHTTPRequestHandler):
             answer = {"simple": "今日は雨だった。", "translation": "It was raining today."}
         elif set(props) == {"title", "paragraphs", "examples"}:
             answer = draft(prompt)
+        elif set(props) == {"title", "paragraphs", "examples", "summary", "bible"}:
+            # An episode of a serial story (ADR 0019).
+            n = (re.search(r"episode (\d+) of", prompt) or [None, "1"])[1]
+            answer = draft(prompt) | {"title": f"第{n}話", "summary": f"Episode {n}: a rainy day at the station.",
+                                      "bible": "Yuki (ゆき), an office worker; Tama, her cat."}
+        elif props == ["questions"]:
+            # Questions after a text: two comprehension questions and a cloze per target word.
+            m = re.search(r"for each of these target words: (.+?)\.", prompt)
+            words = [w for w in re.split(r"[、,]", m.group(1)) if w] if m else []
+            qs = [{"kind": "comprehension", "question": f"話の中で何がありましたか。{i}", "options": ["雨が降っていた", "雪が降っていた", "晴れていた", "風が強かった"],
+                   "answer": 0, "explanation": "The text says it was raining.", "word": ""} for i in range(3)]
+            qs += [{"kind": "cloze", "question": f"駅で友達と会った。（　）の話をした。", "options": [w, "雪", "山", "海"],
+                    "answer": 0, "explanation": f"{w} is the word in the text.", "word": w} for w in words]
+            answer = {"questions": qs}
         else:
             answer = card_fields(prompt, props)
         reply = {

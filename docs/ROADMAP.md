@@ -87,6 +87,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [ ] Italian (CILS) and Spanish (DELE/SIELE) tests. Research in
       `docs/research/proficiency-tests.md`.
 
+- [x] Today (ADR 0019): daily session with backlog rescue (fading words first), serial stories
+      that bring words back, questions after each text.
+
 ## Next: owner's choice
 
 Ranked ideas in `docs/research/feature-ideas.md` (2026-10-30): "Today" daily session, backlog

@@ -324,7 +324,7 @@ mod tests {
             let p = crate::practice::create(&s, 4, true, false, 0, false, false).unwrap();
             let item = json!({"id": "p1", "mondai": "context", "level": 4, "part": 0, "prompt": "（　）", "options": ["a", "b", "c", "d"], "answer": 0});
             s.conn.execute("INSERT INTO test_items (test_id, item_id, section, level, item, reported) VALUES (?1, 'p1', 'context', 4, ?2, 1)", params![p, item.to_string()]).unwrap();
-            s.conn.execute_batch("DROP TABLE ai_log; DROP TABLE item_bank; DROP TABLE ai_cache; DROP TABLE ai_reuse; PRAGMA user_version = 11;").unwrap();
+            s.conn.execute_batch("DROP TABLE ai_log; DROP TABLE item_bank; DROP TABLE ai_cache; DROP TABLE ai_reuse; DROP TABLE today_sessions; DROP TABLE series; PRAGMA user_version = 11;").unwrap();
             assert!(!vocab_id.is_empty());
         }
         let s = Store::open(&path).unwrap();

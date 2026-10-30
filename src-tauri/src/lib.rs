@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::{interests, kanji, practice, primitives, proficiency, voicevox};
+use ankura_core::{interests, kanji, practice, primitives, proficiency, quiz, series, today, voicevox};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -740,6 +740,90 @@ async fn test_finish(app: AppHandle, test_id: String) -> CmdResult<proficiency::
     blocking(app, move |s| proficiency::finish(&s.store(), &test_id).map_err(err)).await
 }
 
+// --- the daily session, serial stories, questions after a text (ADR 0019) ---
+
+#[derive(Serialize)]
+struct TodayOverview {
+    session: today::Session,
+    rescue: today::Rescue,
+    series: Vec<series::SeriesInfo>,
+}
+
+/// Today's session; on the first visit of the day, today's practice words are picked.
+#[tauri::command]
+async fn today_overview(app: AppHandle, day: String) -> CmdResult<TodayOverview> {
+    blocking(app, move |s| {
+        let store = s.store();
+        let mut session = today::session(&store, &day).map_err(err)?;
+        if session.words.is_empty() && session.text_id.is_none() {
+            session.words = today::practice_words(&store, "ja", 6).map_err(err)?;
+            today::save_session(&store, &session).map_err(err)?;
+        }
+        Ok(TodayOverview { rescue: today::rescue(&store, "ja").map_err(err)?, series: series::list(&store).map_err(err)?, session })
+    })
+    .await
+}
+
+/// New suggestions for today's words (keeps the session's progress).
+#[tauri::command]
+async fn today_new_words(app: AppHandle, day: String) -> CmdResult<today::Session> {
+    blocking(app, move |s| {
+        let store = s.store();
+        let mut session = today::session(&store, &day).map_err(err)?;
+        let old = session.words.clone();
+        let mut fresh = today::practice_words(&store, "ja", 12).map_err(err)?;
+        fresh.retain(|p| !old.contains(p));
+        fresh.truncate(6);
+        session.words = fresh;
+        today::save_session(&store, &session).map_err(err)?;
+        Ok(session)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn today_save(app: AppHandle, session: today::Session) -> CmdResult<()> {
+    blocking(app, move |s| today::save_session(&s.store(), &session).map_err(err)).await
+}
+
+#[tauri::command]
+async fn today_mark(app: AppHandle, day: String, step: String) -> CmdResult<today::Session> {
+    blocking(app, move |s| today::mark(&s.store(), &day, &step).map_err(err)).await
+}
+
+#[tauri::command]
+async fn series_create(app: AppHandle, title: String, topic: String, polite: bool, length: usize) -> CmdResult<series::Series> {
+    blocking(app, move |s| series::create(&s.store(), &title, &topic, polite, length).map_err(err)).await
+}
+
+#[tauri::command]
+async fn series_list(app: AppHandle) -> CmdResult<Vec<series::SeriesInfo>> {
+    blocking(app, |s| series::list(&s.store()).map_err(err)).await
+}
+
+#[tauri::command]
+async fn series_delete(app: AppHandle, id: String) -> CmdResult<()> {
+    blocking(app, move |s| series::delete(&s.store(), &id).map_err(err)).await
+}
+
+#[tauri::command]
+async fn quiz_questions(app: AppHandle, text_id: String) -> CmdResult<Vec<quiz::QuizItem>> {
+    blocking(app, move |s| {
+        let llm = s.llm()?;
+        quiz::questions(&s.own_store()?, &llm, &text_id).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn quiz_submit(app: AppHandle, text_id: String, answers: Vec<(String, usize)>) -> CmdResult<quiz::QuizResult> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer()?;
+        quiz::submit(&mut s.store(), tok.as_ref(), &text_id, &answers).map_err(err)
+    })
+    .await
+}
+
 // --- listening (ADR 0017) ---
 
 #[derive(Serialize)]
@@ -1192,6 +1276,15 @@ pub fn run() {
             test_grammar,
             test_reading,
             test_finish,
+            today_overview,
+            today_new_words,
+            today_save,
+            today_mark,
+            series_create,
+            series_list,
+            series_delete,
+            quiz_questions,
+            quiz_submit,
             speech_settings,
             speech_text,
             voicevox_speakers,

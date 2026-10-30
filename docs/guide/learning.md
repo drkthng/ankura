@@ -40,39 +40,45 @@ longer taking things in.
 
 ## One session, step by step
 
+The [Today](today.md) screen runs this session for you, step by step.
+
 1. **Sync.** After your Anki reviews, press **Sync now** on the **Anki** screen so Ankura's colours and
    word choices match today's Anki.
-2. **Write a text.** On **Write for me**, pick 5-8 practice words. Take them in this order:
-   - **fading words** (Ankura suggests them: your overdue Anki cards);
-   - **stealth leeches** from **Stats** (Anki says you know them, but you keep looking them up);
-   - words you looked up recently.
+2. **Write a text.** **Today** picks 6 practice words in this order (on **Write for me** you pick
+   them yourself, the same way):
+   - **fading words**: your overdue Anki cards;
+   - **stealth leeches** (Anki says you know them, but you keep looking them up);
+   - words you missed in questions or looked up recently.
 
-   Leave the topic empty (Ankura picks from your [interests](write-for-me.md#your-interests)) or
-   choose one. 500 characters is a good length.
+   Continue your serial story, or start one. Leave the topic empty (Ankura picks from your
+   [interests](write-for-me.md#your-interests)) or choose one. 500 characters is a good length.
 3. **First reading: your pace.** Look up every word you're not sure of; it costs one click and
    each look-up teaches Ankura what you don't know. For a word worth learning, make a card
    **with this sentence**. **I don't know this** marks it for practice.
 4. **Second reading: the voice's pace.** Press **P**, keep the speed at 1×, and follow the
    highlighted sentence without stopping. This pass is what improves listening and reading speed.
-5. **Optional third pass: listen only**, or shadow: pause after each sentence and say it aloud.
+5. **Questions.** Answer the questions about the text (Today's step 4, or **Check yourself** at
+   the end of the text). Retrieving right after reading helps it stick, and missed words come
+   back.
+6. **Optional: listen only**, or shadow: pause after each sentence and say it aloud.
    10-15 minutes, a few times a week, helps listening most for learners at your level.
-6. **Cards.** On **Cards**, check the drafts. If a card isn't what you want, tell the AI under it
+7. **Cards.** On **Cards**, check the drafts. If a card isn't what you want, tell the AI under it
    ("an example with ほど…ない", "the meaning used in the text") and press Enter. Then **Add to
    Anki**.
-7. **Tomorrow:** use some of the same words again, on the same or a related topic (next section).
+8. **Tomorrow:** the next episode brings some of the same words back (next section).
 
 ## Meet each word many times
 
 One text uses each practice word a couple of times. That's not enough: aim for about 10
 encounters, spread over days and weeks.
 
-- **Write small series.** Write 3-5 texts on one topic over a few days, keeping about half of the
-  practice words from the last text and adding a few new ones. Texts on one topic repeat their
-  vocabulary by themselves (this is called narrow reading).
+- **Read a serial story.** On **Today**, continue a story day by day: each episode brings back up
+  to three words from earlier episodes, and texts on one topic repeat their vocabulary by
+  themselves (this is called narrow reading).
 - **Reread old texts.** Your **Library** keeps every text. Rereading with **Listen** a few days
   later is cheap and counts.
-- **Feed missed words back in.** Words you got wrong in a [practice test](practice-test.md) or
-  looked up twice go into the next text's practice words.
+- **Feed missed words back in.** Words you miss in questions, look up twice, or get wrong in a
+  [practice test](practice-test.md) come back in Today's words.
 
 ## Coming back after a break: the Anki backlog
 
@@ -158,25 +164,21 @@ way to read texts that are too hard.
 
 - **Speaking and writing.** Producing language shows you what you can't say yet. For now, write
   2-3 sentences about each text in a notebook or a chat, or find a language exchange partner.
-- **Audio on Anki cards, serial stories, questions after each text, importing web pages and
-  books:** see below.
+- **Audio on Anki cards, importing web pages and books:** see below.
 
 ## What could come next
 
 Ranked by how much they would speed up learning or make it more fun, compared to the work they
 take (full list with sources: [Feature ideas](../research/feature-ideas.md)):
 
-1. **"Today": one button for the daily session.** Fading words, a text, listening, quick
-   questions and cards in one flow, instead of six screens.
-2. **Backlog rescue.** Texts written around your most overdue Anki cards, read before you review
-   them.
-3. **Sentence audio on Anki cards.** The VOICEVOX audio Ankura already makes, added to new cards.
-4. **Clipboard reader and web import.** Copied lines from games, visual novels and web pages flow
+Already built from this list: **Today** (the daily session with backlog rescue), **serial
+stories** and **questions after each text**.
+
+1. **Sentence audio on Anki cards.** The VOICEVOX audio Ankura already makes, added to new cards.
+2. **Clipboard reader and web import.** Copied lines from games, visual novels and web pages flow
    straight into the coloured reader.
-5. **Pre-learn a text.** The 5-10 unknown words that make a text readable, before you start it.
-6. **Serial stories.** Continuing episodes that bring back earlier words over several days.
-7. **Three questions after each text.** A quick comprehension and cloze check.
-8. **Frequency and pitch-accent dictionaries.** Frequency ranks for choosing words; pitch accent
+3. **Pre-learn a text.** The 5-10 unknown words that make a text readable, before you start it.
+4. **Frequency and pitch-accent dictionaries.** Frequency ranks for choosing words; pitch accent
    in the pop-up.
 
 Then: word-level highlighting and auto-pause while listening, a cloze game for fading words,

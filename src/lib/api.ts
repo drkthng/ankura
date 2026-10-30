@@ -171,6 +171,66 @@ export interface GenerateRequest {
   topic: string;
   length: number;
   polite: boolean;
+  /** The serial story this text continues (ADR 0019). */
+  series?: string | null;
+}
+
+// --- the daily session, serial stories, questions after a text (ADR 0019) ---
+
+export interface Pick {
+  key: WordKey;
+  display: string;
+  reason: "fading" | "stealth_leech" | "quiz_missed" | "looked_up" | "learning" | "added";
+}
+
+export interface TodaySession {
+  day: string;
+  words: Pick[];
+  text_id: string | null;
+  /** 'read', 'listened', 'questions', 'cards' */
+  done: string[];
+}
+
+export interface Series {
+  id: string;
+  title: string;
+  topic: string;
+  bible: string;
+  polite: boolean;
+  length: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface Episode {
+  text_id: string;
+  title: string;
+  episode: number;
+  targets: string[];
+  summary: string;
+  created_at: number;
+  opened_at: number | null;
+}
+
+export interface SeriesInfo {
+  series: Series;
+  episodes: Episode[];
+}
+
+export interface TodayOverview {
+  session: TodaySession;
+  rescue: { fading: number; met_this_week: number };
+  series: SeriesInfo[];
+}
+
+export interface QuizItem {
+  id: string;
+  kind: "comprehension" | "cloze";
+  question: string;
+  options: string[];
+  answer: number;
+  explanation: string;
+  word: string | null;
 }
 
 export interface Example {
@@ -463,6 +523,10 @@ export interface TextExtra {
   coverage: number;
   attempts: number;
   examples: Example[];
+  /** An episode of a serial story (ADR 0019). */
+  series?: string;
+  episode?: number;
+  summary?: string;
 }
 
 export interface NewEvent {
@@ -505,6 +569,17 @@ export const api = {
   setApiKey: (provider: Provider, key: string) => invoke<void>("set_api_key", { provider, key }),
   studyWords: () => invoke<StudyWord[]>("study_words"),
   generateText: (request: GenerateRequest) => invoke<GenerateResult>("generate_text", { request }),
+  todayOverview: () => invoke<TodayOverview>("today_overview", { day: localDay() }),
+  todayNewWords: () => invoke<TodaySession>("today_new_words", { day: localDay() }),
+  todaySave: (session: TodaySession) => invoke<void>("today_save", { session }),
+  todayMark: (step: string) => invoke<TodaySession>("today_mark", { day: localDay(), step }),
+  seriesCreate: (title: string, topic: string, polite: boolean, length: number) =>
+    invoke<Series>("series_create", { title, topic, polite, length }),
+  seriesList: () => invoke<SeriesInfo[]>("series_list"),
+  seriesDelete: (id: string) => invoke<void>("series_delete", { id }),
+  quizQuestions: (textId: string) => invoke<QuizItem[]>("quiz_questions", { textId }),
+  quizSubmit: (textId: string, answers: [string, number][]) =>
+    invoke<{ right: number; total: number; missed_words: string[] }>("quiz_submit", { textId, answers }),
   chatPrompt: (request: GenerateRequest) => invoke<string>("chat_prompt", { request }),
   chatSubmit: (request: GenerateRequest, answer: string, attempts: number, keep: boolean) =>
     invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),

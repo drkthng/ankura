@@ -12,10 +12,18 @@
   import TestView from "./views/Test.svelte";
   import Practice from "./views/Practice.svelte";
   import Guide from "./views/Guide.svelte";
+  import Today from "./views/Today.svelte";
 
-  type View = { name: "library" } | { name: "reader"; id: string } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "practice" } | { name: "guide" } | { name: "anki"; focus?: string } | { name: "settings" };
+  type View = { name: "today" } | { name: "library" } | { name: "reader"; id: string; today?: boolean } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "practice" } | { name: "guide" } | { name: "anki"; focus?: string } | { name: "settings" };
 
-  let view = $state<View>({ name: "library" });
+  let view = $state<View>({ name: "today" });
+
+  // A text opened from Today shows the session's steps (ADR 0019).
+  let todayDone = $state<string[]>([]);
+  async function openFromToday(id: string) {
+    todayDone = (await api.todayOverview().catch(() => null))?.session.done ?? [];
+    view = { name: "reader", id, today: true };
+  }
   let status = $state<Status | null>(null);
   let statusError = $state("");
 
@@ -41,7 +49,8 @@
       <span class="logo" aria-hidden="true">🌱</span>
       <span>Ankura</span>
     </div>
-    <button class:active={view.name === "library" || view.name === "reader"} onclick={() => (view = { name: "library" })}>
+    <button class:active={view.name === "today" || (view.name === "reader" && view.today)} onclick={() => (view = { name: "today" })}>Today</button>
+    <button class:active={view.name === "library" || (view.name === "reader" && !view.today)} onclick={() => (view = { name: "library" })}>
       Library
     </button>
     <button class:active={view.name === "write"} onclick={() => (view = { name: "write" })}>Write for me</button>
@@ -66,10 +75,26 @@
     {#if statusError}
       <p class="error">{statusError}</p>
     {/if}
-    {#if view.name === "library"}
+    {#if view.name === "today"}
+      <Today onopen={openFromToday} ongo={(name) => (view = { name })} />
+    {:else if view.name === "library"}
       <Library {status} onopen={(id) => (view = { name: "reader", id })} ongo={(name) => (view = { name })} />
     {:else if view.name === "reader"}
-      <Reader id={view.id} onback={() => (view = { name: "library" })} oncards={() => (view = { name: "cards" })} />
+      {#key view.id}
+        <Reader
+          id={view.id}
+          onback={() => (view = { name: view.name === "reader" && view.today ? "today" : "library" })}
+          oncards={() => (view = { name: "cards" })}
+          today={view.today
+            ? {
+                done: todayDone,
+                onstep: async (s: string) => {
+                  todayDone = (await api.todayMark(s)).done;
+                },
+              }
+            : null}
+        />
+      {/key}
     {:else if view.name === "write"}
       <Write onopen={(id) => (view = { name: "reader", id })} ongo={(name) => (view = { name })} />
     {:else if view.name === "cards"}

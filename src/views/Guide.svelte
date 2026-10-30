@@ -32,6 +32,7 @@
   /** Guides in reading order; the learning guide first. */
   const ORDER = [
     "learning",
+    "today",
     "reading",
     "write-for-me",
     "cards",

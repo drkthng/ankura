@@ -24,6 +24,9 @@ pub struct GenerateRequest {
     pub length: usize,
     /// です/ます style instead of plain style.
     pub polite: bool,
+    /// The serial story this text is the next episode of (ADR 0019).
+    #[serde(default)]
+    pub series: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -62,7 +65,18 @@ notes.
 
 Also write one short, natural example sentence for each target word, with an English translation.";
 
-fn schema() -> Value {
+/// An episode of a serial story also returns its summary and the story bible.
+fn schema_for(series: bool) -> Value {
+    let mut s = base_schema();
+    if series {
+        s["properties"]["summary"] = json!({"type": "string"});
+        s["properties"]["bible"] = json!({"type": "string"});
+        s["required"] = json!(["title", "paragraphs", "examples", "summary", "bible"]);
+    }
+    s
+}
+
+fn base_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -95,6 +109,11 @@ pub struct Draft {
     pub paragraphs: Vec<String>,
     #[serde(default)]
     pub examples: Vec<Example>,
+    /// Episodes of a serial story: what happened, and the characters and setting.
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub bible: String,
 }
 
 impl Draft {
@@ -179,6 +198,8 @@ pub struct Prepared {
     target_lemmas: Vec<(String, HashSet<String>)>,
     pub prompt: String,
     lang: String,
+    /// For an episode: its number.
+    episode: Option<usize>,
 }
 
 /// Each target's lemmas as the tokenizer sees them, so conjugated uses count.
@@ -193,7 +214,19 @@ pub(crate) fn target_lemmas(tok: &dyn Tokenizer, targets: &[String]) -> Result<V
 }
 
 pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Result<Prepared> {
-    let targets: Vec<String> = req.targets.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+    let mut targets: Vec<String> = req.targets.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+    // A serial story brings back earlier episodes' words.
+    let series = match &req.series {
+        Some(id) => Some(crate::series::context(store, id, &targets)?),
+        None => None,
+    };
+    if let Some(c) = &series {
+        for t in &c.carry {
+            if targets.len() < 8 && !targets.contains(t) {
+                targets.push(t.clone());
+            }
+        }
+    }
     if targets.is_empty() {
         return Err(Error::Llm("pick at least one target word".into()));
     }
@@ -207,10 +240,18 @@ pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Res
         .take(8)
         .map(|w| w.key.lemma)
         .collect();
-    let req = GenerateRequest { targets, ..req.clone() };
+    let mut req = GenerateRequest { targets, ..req.clone() };
+    if let Some(c) = &series {
+        if req.topic.trim().is_empty() {
+            req.topic = c.series.topic.clone();
+        }
+    }
     let avoid = crate::interests::get(store)?.avoid;
-    let prompt = user_prompt(&req, &known, &fading, &avoid);
-    Ok(Prepared { req, target_lemmas, prompt, lang })
+    let mut prompt = user_prompt(&req, &known, &fading, &avoid);
+    if let Some(c) = &series {
+        prompt.push_str(&c.prompt);
+    }
+    Ok(Prepared { req, target_lemmas, prompt, lang, episode: series.map(|c| c.episode) })
 }
 
 pub fn check_draft(store: &Store, tok: &dyn Tokenizer, prep: &Prepared, draft: &Draft) -> Result<Check> {
@@ -240,13 +281,19 @@ pub fn feedback(c: &Check) -> String {
 /// Saves a draft to the library.
 pub fn save(store: &Store, prep: &Prepared, draft: &Draft, c: &Check, attempts: usize) -> Result<GenerateResult> {
     let targets = &prep.req.targets;
-    let extra = json!({
+    let mut extra = json!({
         "targets": targets,
         "topic": prep.req.topic,
         "coverage": c.coverage,
         "attempts": attempts,
         "examples": draft.examples,
     });
+    if let (Some(id), Some(n)) = (&prep.req.series, prep.episode) {
+        extra["series"] = json!(id);
+        extra["episode"] = json!(n);
+        extra["summary"] = json!(draft.summary.trim());
+        crate::series::after_episode(store, id, &draft.bible)?;
+    }
     let title = if draft.title.trim().is_empty() { targets.join("・") } else { draft.title.trim().to_string() };
     let text = store.add_text_with_extra(&prep.lang, &title, &draft.body(), "generated", Some(&extra))?;
     Ok(GenerateResult {
@@ -267,7 +314,7 @@ pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &Ge
     let mut prompt = prep.prompt.clone();
     while attempts < MAX_ATTEMPTS {
         attempts += 1;
-        let draft: Draft = serde_json::from_value(llm.json(SYSTEM, &prompt, &schema())?)
+        let draft: Draft = serde_json::from_value(llm.json(SYSTEM, &prompt, &schema_for(prep.episode.is_some()))?)
             .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
         let c = check_draft(store, tok, &prep, &draft)?;
         let good = c.good();
@@ -414,7 +461,7 @@ pub fn parse_answer(answer: &str) -> Result<Draft> {
     if paragraphs.is_empty() {
         return Err(Error::Llm("paste Claude's reply first".into()));
     }
-    Ok(Draft { title, paragraphs, examples: vec![] })
+    Ok(Draft { title, paragraphs, examples: vec![], summary: String::new(), bible: String::new() })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -510,7 +557,7 @@ mod tests {
             ]),
             prompts: Mutex::new(vec![]),
         };
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false, series: None };
         let r = generate_text(&s, t, &llm, &req).unwrap();
         assert_eq!(r.attempts, 2);
         assert!(r.missing_targets.is_empty(), "{r:?}");
@@ -528,6 +575,36 @@ mod tests {
     }
 
     #[test]
+    fn writes_episodes_of_a_serial_story() {
+        let Some(t) = sudachi() else { return };
+        let s = store_with_known(&[("猫", "ねこ"), ("好き", "すき"), ("毎日", "まいにち"), ("見る", "みる")]);
+        let x = crate::series::create(&s, "駅の猫", "a cat at a station", false, 300).unwrap();
+        let episode = |text: &str, summary: &str| {
+            let mut d = draft(&[text]);
+            d["summary"] = json!(summary);
+            d["bible"] = json!("Tama, the station cat.");
+            d
+        };
+        let llm = ScriptedLlm {
+            drafts: Mutex::new(vec![episode("猫が石油を見る。", "Tama sees oil."), episode("毎日、猫が石油と傘を見る。", "Tama again.")]),
+            prompts: Mutex::new(vec![]),
+        };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 300, polite: false, series: Some(x.id.clone()) };
+        let r1 = generate_text(&s, t, &llm, &req).unwrap();
+        let extra = s.open_text(&r1.text.id).unwrap().unwrap().extra.unwrap();
+        assert_eq!((extra["series"].as_str(), extra["episode"].as_u64(), extra["summary"].as_str()), (Some(x.id.as_str()), Some(1), Some("Tama sees oil.")));
+        assert_eq!(crate::series::get(&s, &x.id).unwrap().bible, "Tama, the station cat.");
+        // Episode 2: the series' topic, the story so far, and 石油 carried over next to the new word.
+        let req = GenerateRequest { targets: vec!["傘".into()], ..req };
+        let r2 = generate_text(&s, t, &llm, &req).unwrap();
+        let prompts = llm.prompts.lock().unwrap();
+        let p = &prompts[1];
+        assert!(p.contains("Target words: 傘、石油") && p.contains("episode 2") && p.contains("Episode 1: Tama sees oil.") && p.contains("Tama, the station cat") && p.contains("a cat at a station"), "{p}");
+        assert_eq!(crate::series::episodes(&s, &x.id).unwrap().iter().map(|e| e.episode).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(r2.text.title.is_empty(), false);
+    }
+
+    #[test]
     fn keeps_the_best_attempt_when_none_is_good_enough() {
         let Some(t) = sudachi() else { return };
         let s = store_with_known(&[("猫", "ねこ")]);
@@ -542,7 +619,7 @@ mod tests {
             ]),
             prompts: Mutex::new(vec![]),
         };
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 100, polite: true };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: String::new(), length: 100, polite: true, series: None };
         let r = generate_text(&s, t, &llm, &req).unwrap();
         assert_eq!(r.attempts, 3);
         assert_eq!(s.open_text(&r.text.id).unwrap().unwrap().body, "猫と石油を分析した。");
@@ -572,7 +649,7 @@ mod tests {
     fn chat_flow_asks_for_a_rewrite_then_saves() {
         let Some(t) = sudachi() else { return };
         let s = store_with_known(&[("猫", "ねこ"), ("好き", "すき"), ("毎日", "まいにち"), ("見る", "みる"), ("日本", "にっぽん")]);
-        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false };
+        let req = GenerateRequest { targets: vec!["石油".into()], topic: "猫".into(), length: 200, polite: false, series: None };
 
         let prompt = chat_prompt(&prepare(&s, t, &req).unwrap());
         assert!(prompt.contains("comprehensible input") && prompt.contains("Target words: 石油") && prompt.contains("\"paragraphs\""));
@@ -628,7 +705,7 @@ mod tests {
         let Some(t) = sudachi() else { return };
         let s = Store::open_in_memory().unwrap();
         let llm = ScriptedLlm { drafts: Mutex::new(vec![]), prompts: Mutex::new(vec![]) };
-        let req = GenerateRequest { targets: vec![" ".into()], topic: String::new(), length: 100, polite: false };
+        let req = GenerateRequest { targets: vec![" ".into()], topic: String::new(), length: 100, polite: false, series: None };
         assert!(generate_text(&s, t, &llm, &req).is_err());
     }
 }

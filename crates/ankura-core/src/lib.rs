@@ -18,9 +18,12 @@ pub mod normalize;
 pub mod practice;
 pub mod primitives;
 pub mod proficiency;
+pub mod quiz;
 pub mod reader;
+pub mod series;
 pub mod stats;
 pub mod store;
+pub mod today;
 pub mod tokenize;
 pub mod voicevox;
 

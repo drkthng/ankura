@@ -14,8 +14,23 @@
   import CoverageBar from "../components/CoverageBar.svelte";
   import WordPopover from "../components/WordPopover.svelte";
   import * as speech from "../lib/speech";
+  import Quiz from "../components/Quiz.svelte";
 
-  let { id, onback, oncards }: { id: string; onback: () => void; oncards: () => void } = $props();
+  let {
+    id,
+    onback,
+    oncards,
+    today = null,
+  }: {
+    id: string;
+    onback: () => void;
+    oncards: () => void;
+    /** Opened from Today (ADR 0019): the session's steps, and how to report one done. */
+    today?: { done: string[]; onstep: (step: string) => void } | null;
+  } = $props();
+  let showQuiz = $state(false);
+  const step = (s: string) => today?.onstep(s);
+  const stepDone = (s: string) => !!today?.done.includes(s);
 
   type Furigana = "unknown" | "all" | "none";
   const pref = <T extends string>(k: string, d: T): T => {
@@ -272,6 +287,7 @@
     if (run === me) {
       playState = "idle";
       cur = -1;
+      if (from === 0) step("listened");
     }
   }
   function pausePlay() {
@@ -307,7 +323,7 @@
 
 <div class="reader-page">
   <header class="toolbar">
-    <button class="ghost" onclick={onback}>← Library</button>
+    <button class="ghost" onclick={onback}>← {today ? "Today" : "Library"}</button>
     <h1 class="title">{meta?.title ?? ""}</h1>
     <div class="listen">
       {#if playState === "playing"}
@@ -341,6 +357,18 @@
       <CoverageBar coverage={doc.coverage} />
       <p class="muted tip">Tip: drag across several words to look them up as one phrase. <kbd>P</kbd> reads the text aloud.</p>
       {#if playState !== "idle" && voice}<p class="muted tip">Voice: {voice}</p>{/if}
+      {#if extra?.episode}<p class="muted written">Episode {extra.episode} of a serial story</p>{/if}
+      {#if today}
+        <div class="session">
+          <strong>Today</strong>
+          <button class:done={stepDone("read")} onclick={() => step("read")}>{stepDone("read") ? "✓ Read" : "1 · Done reading"}</button>
+          <button class:done={stepDone("listened")} onclick={() => play(0)} title="Read aloud from the start; done when it reaches the end">
+            {stepDone("listened") ? "✓ Listened" : "2 · Listen (P)"}
+          </button>
+          <button class:done={stepDone("questions")} onclick={() => (showQuiz = true)}>{stepDone("questions") ? "✓ Questions" : "3 · Questions"}</button>
+          <button class="ghost" onclick={onback}>Back to Today</button>
+        </div>
+      {/if}
       {#if playError}<p class="error tip">{playError}</p>{/if}
       {#if extra}
         <p class="muted written">
@@ -374,6 +402,13 @@
         </p>
       {/each}
     </article>
+    <section class="check">
+      {#if showQuiz}
+        <Quiz textId={id} ondone={() => step("questions")} />
+      {:else}
+        <button onclick={() => (showQuiz = true)}>Check yourself: questions about this text</button>
+      {/if}
+    </section>
     {#if extra?.examples?.length}
       <section class="examples">
         <h2>Example sentences</h2>
@@ -448,6 +483,30 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .session {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.8rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .session button.done {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .check {
+    max-width: 44em;
+    width: 100%;
+    margin: -4rem auto 5rem;
+    padding: 0 2rem;
+  }
+  .text.vertical + .check {
+    margin-top: 1.5rem;
+  }
   .listen {
     display: flex;
     gap: 0.35rem;
@@ -499,7 +558,7 @@
   .examples {
     max-width: 44em;
     width: 100%;
-    margin: -4rem auto 4rem;
+    margin: 0 auto 4rem;
     padding: 0 2rem;
   }
   /* Vertical text has no bottom padding to pull back into. */
