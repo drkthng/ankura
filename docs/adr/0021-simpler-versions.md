@@ -27,6 +27,11 @@
    versions written, and the words not used yet. A version links back to the original. The plan
    the reader showed is the one written, so parts keep their numbers.
 
+5. **In the library** (owner's request, 2026-10-31): versions are listed indented under their
+   original, in order; episodes under their series. The list can be ordered by creation date
+   (newest or oldest first), last read, or title, and searched by title and text
+   (`Store::library`).
+
 ## Consequences
 
 - A short text with many new words gets many versions retelling the same content; the guide says

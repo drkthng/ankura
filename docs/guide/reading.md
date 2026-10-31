@@ -8,6 +8,15 @@ In **Library**, paste any Japanese text (an article, a chapter, lyrics), give it
 like, and press **Start reading**. Texts that Ankura writes for you ([Write for me](write-for-me.md))
 land in the Library too.
 
+The list under **Your texts**:
+
+- **Order:** newest first (the default), oldest first, recently read, or by title. Ankura remembers
+  your choice.
+- **Search** finds texts by title or by anything in the text itself.
+- **Simpler versions** sit indented under the text they retell, in order, and the original says
+  how many it has. **Episodes** of a serial story are grouped under the story's title.
+- In the reader, a simpler version links to its original, and the original lists its versions.
+
 ## What the colours mean
 
 The bar at the top shows the share of words you know, split by Anki state:

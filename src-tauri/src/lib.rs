@@ -247,6 +247,12 @@ async fn list_texts(app: AppHandle) -> CmdResult<Vec<TextMeta>> {
     blocking(app, |s| s.store().list_texts().map_err(err)).await
 }
 
+/// The library with each text's original or series, filtered by title and text.
+#[tauri::command]
+async fn library(app: AppHandle, query: String) -> CmdResult<Vec<ankura_core::store::LibraryItem>> {
+    blocking(app, move |s| s.store().library(&query).map_err(err)).await
+}
+
 #[tauri::command]
 async fn add_text(app: AppHandle, title: String, body: String) -> CmdResult<TextMeta> {
     blocking(app, move |s| {
@@ -1354,6 +1360,7 @@ pub fn run() {
             adapt_write,
             adapt_status,
             adapt_missing,
+            library,
             sentence_translate,
             word_explain_ja,
             today_overview,

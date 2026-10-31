@@ -175,6 +175,17 @@ export interface GenerateRequest {
   series?: string | null;
 }
 
+/** A text in the library, with the original or series it belongs to. */
+export interface LibraryItem {
+  meta: TextMeta;
+  parent: string | null;
+  part: number | null;
+  of: number | null;
+  series: string | null;
+  episode: number | null;
+  series_title: string | null;
+}
+
 // --- simpler versions of a text (ADR 0021) ---
 
 export interface AdaptPlan {
@@ -564,6 +575,7 @@ export const api = {
   downloadJmdict: () => invoke<DictionaryInfo>("download_jmdict"),
 
   listTexts: () => invoke<TextMeta[]>("list_texts"),
+  library: (query: string) => invoke<LibraryItem[]>("library", { query }),
   addText: (title: string, body: string) => invoke<TextMeta>("add_text", { title, body }),
   renameText: (id: string, title: string) => invoke<void>("rename_text", { id, title }),
   deleteText: (id: string) => invoke<void>("delete_text", { id }),

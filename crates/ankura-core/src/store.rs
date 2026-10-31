@@ -172,6 +172,20 @@ pub struct TextMeta {
     pub chars: i64,
 }
 
+/// A text in the library, with what it belongs to.
+#[derive(Debug, Clone, Serialize)]
+pub struct LibraryItem {
+    pub meta: TextMeta,
+    /// The original this text is a simpler version of (ADR 0021), and which version.
+    pub parent: Option<String>,
+    pub part: Option<i64>,
+    pub of: Option<i64>,
+    /// The serial story this text is an episode of (ADR 0019).
+    pub series: Option<String>,
+    pub episode: Option<i64>,
+    pub series_title: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Text {
     pub meta: TextMeta,
@@ -383,6 +397,40 @@ impl Store {
             opened_at: None,
             chars: body.chars().count() as i64,
         })
+    }
+
+    /// The library: every text with what it belongs to (the original a simpler version retells,
+    /// the series an episode is part of). `query` filters by title and text; empty lists all.
+    pub fn library(&self, query: &str) -> Result<Vec<LibraryItem>> {
+        let like = format!("%{}%", query.trim().replace('%', "").replace('_', ""));
+        let mut st = self.conn.prepare(
+            "SELECT t.id, t.lang, t.title, t.source, t.created_at, t.opened_at, length(t.body),
+                    json_extract(t.extra, '$.adapted_from'), json_extract(t.extra, '$.part'), json_extract(t.extra, '$.of'),
+                    json_extract(t.extra, '$.series'), json_extract(t.extra, '$.episode'), s.title
+             FROM texts t LEFT JOIN series s ON s.id = json_extract(t.extra, '$.series')
+             WHERE ?1 = '%%' OR t.title LIKE ?1 OR t.body LIKE ?1
+             ORDER BY t.created_at DESC",
+        )?;
+        let rows = st.query_map([like], |r| {
+            Ok(LibraryItem {
+                meta: TextMeta {
+                    id: r.get(0)?,
+                    lang: r.get(1)?,
+                    title: r.get(2)?,
+                    source: r.get(3)?,
+                    created_at: r.get(4)?,
+                    opened_at: r.get(5)?,
+                    chars: r.get(6)?,
+                },
+                parent: r.get(7)?,
+                part: r.get(8)?,
+                of: r.get(9)?,
+                series: r.get(10)?,
+                episode: r.get(11)?,
+                series_title: r.get(12)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     pub fn list_texts(&self) -> Result<Vec<TextMeta>> {
@@ -883,6 +931,25 @@ mod tests {
         assert!(full.meta.opened_at.is_some());
         s.delete_text(&t.id).unwrap();
         assert!(s.list_texts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn library_links_versions_and_episodes_and_searches() {
+        let s = Store::open_in_memory().unwrap();
+        let orig = s.add_text("ja", "お茶の研究", "お茶を飲む人が多い。", "pasted").unwrap();
+        s.add_text_with_extra("ja", "やさしい版", "お茶はおいしい。", "generated", Some(&serde_json::json!({"adapted_from": orig.id, "part": 2, "of": 3}))).unwrap();
+        let x = crate::series::create(&s, "駅の猫", "", false, 300).unwrap();
+        s.add_text_with_extra("ja", "第1話", "猫がいる。", "generated", Some(&serde_json::json!({"series": x.id, "episode": 1}))).unwrap();
+        let all = s.library("").unwrap();
+        assert_eq!(all.len(), 3);
+        let v = all.iter().find(|i| i.meta.title == "やさしい版").unwrap();
+        assert_eq!((v.parent.as_deref(), v.part, v.of), (Some(orig.id.as_str()), Some(2), Some(3)));
+        let e = all.iter().find(|i| i.meta.title == "第1話").unwrap();
+        assert_eq!((e.episode, e.series_title.as_deref()), (Some(1), Some("駅の猫")));
+        // Search in titles and in the text itself.
+        assert_eq!(s.library("研究").unwrap().len(), 1);
+        assert_eq!(s.library("猫が").unwrap().iter().map(|i| i.meta.title.as_str()).collect::<Vec<_>>(), ["第1話"]);
+        assert!(s.library("100%").unwrap().is_empty());
     }
 
     #[test]

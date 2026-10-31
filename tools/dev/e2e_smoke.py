@@ -693,6 +693,18 @@ def main():
         d.find("//p[contains(., 'Simpler version 1 of')]")
         d.click("//button[normalize-space()='open the original']")
         d.find("//h1[contains(@class,'title') and normalize-space()='駅の朝']")
+        # In the library the versions sit under the original; search filters titles and texts.
+        d.click("//nav//button[normalize-space()='Library']")
+        nested = d.js("const u = [...document.querySelectorAll('li.unit')].find(l => l.querySelector('.t-title')?.textContent === '駅の朝'); return u ? u.querySelectorAll('.children li').length : -1")
+        print("library: versions under the original:", nested)
+        assert nested == n, (nested, n)
+        d.js("const s = document.querySelector('select[aria-label=\"Order\"]'); s.value = 'oldest'; s.dispatchEvent(new Event('change'))")
+        d.type("//input[@type='search']", "ぬいぐるみ")
+        time.sleep(1)
+        d.shot(out / "16f-library.png")
+        units = d.js("return document.querySelectorAll('li.unit').length")
+        print("library search 'ぬいぐるみ':", units, "groups")
+        assert units >= 1
 
         # The guides inside the app: the learning guide first, links between pages.
         d.click("//nav//button[normalize-space()='How to learn']")
