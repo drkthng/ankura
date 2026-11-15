@@ -17,12 +17,13 @@ use crate::{Error, Result};
 /// Dictionary tags of words that are grammar, not vocabulary: not counted in coverage.
 const FUNCTION_TAGS: &[&str] = &["prep", "conj", "det", "artic", "article", "art", "pron", "contr", "contraction", "particle"];
 
-/// Verbs so common that a form of theirs is that verb, whatever else it could be (era, sale, fue).
+/// Verbs so common that a form of theirs is that verb, whatever else it could be (era, fue). Kept short:
+/// a longer list turns common nouns into verbs (Spanish vino, "wine", into venir).
 const COMMON_VERBS_IT: &[&str] = &[
-    "essere", "avere", "fare", "andare", "stare", "dare", "dire", "potere", "volere", "dovere", "sapere", "venire", "vedere",
+    "essere", "avere", "fare", "andare", "stare", "potere", "volere", "dovere",
 ];
 const COMMON_VERBS_ES: &[&str] = &[
-    "ser", "estar", "haber", "tener", "hacer", "ir", "poder", "decir", "dar", "ver", "saber", "querer", "venir",
+    "ser", "estar", "haber", "tener", "hacer", "ir", "poder",
 ];
 
 /// Italian words written with a final apostrophe.

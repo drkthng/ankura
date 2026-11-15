@@ -50,7 +50,7 @@ Research on 2026-11-15 (files fetched and inspected, not from memory):
    punctuation and elisions (l'amico → l' + amico; po', da' stay whole). A word's dictionary form
    is chosen in this order: a grammar word is itself (articles, prepositions, pronouns,
    conjunctions, contractions; they are not counted in coverage, like Japanese particles); a
-   candidate the learner has in Anki; one of a dozen very common verbs (era → essere, fue → ir or
+   candidate the learner has in Anki; one of a few very common verbs, mostly auxiliaries (era → essere, fue → ir or
    ser as listed); the word itself if it is a headword (sale stays sale); the first word it is a
    form of; then rules that take attached pronouns off verbs (parlarne, dammelo, dímelo,
    vámonos); otherwise the word as written. Capitalised words the dictionary doesn't know are
