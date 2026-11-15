@@ -6,8 +6,10 @@
   import {
     api,
     keyId,
+    type ReaderToken,
     type ReviewAnswer,
     type RoundItem,
+    type WordState,
     type ReviewMode,
     type ReviewOutcome,
     type ReviewOverview,
@@ -15,6 +17,7 @@
   } from "../lib/api";
   import * as speech from "../lib/speech";
   import { app } from "../lib/lang.svelte";
+  import WordPopover from "../components/WordPopover.svelte";
 
   let { ongo }: { ongo: (view: "anki" | "guide" | "cards") => void } = $props();
 
@@ -62,6 +65,28 @@
   const board = $derived(items.slice(boardStart, boardStart + BOARD));
   const right = $derived(results.filter((r) => r.outcome.right).length);
   const hasSentence = (i: RoundItem) => !!(i.before || i.after);
+
+  // A word of the sentence, clicked: its reading and meaning, as in the reader.
+  let looked = $state<{ token: ReaderToken; rect: DOMRect } | null>(null);
+  function lookUp(t: ReaderToken, e: Event) {
+    if (!t.key) return;
+    looked = { token: t, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() };
+    api.recordEvents([{ kind: "lookup", key: t.key, text_id: null, display: t.dictionary_form }]).catch(() => {});
+  }
+  function closeLook() {
+    looked = null;
+    if (!outcome) setTimeout(() => input?.focus(), 0);
+  }
+  async function markLooked(state: WordState | null) {
+    const k = looked?.token.key;
+    closeLook();
+    if (k) await api.setWordMark(k, state).catch((e) => (error = String(e)));
+  }
+  function dontKnowLooked() {
+    const t = looked?.token;
+    closeLook();
+    if (t?.key) api.recordEvents([{ kind: "dont_know", key: t.key, text_id: null, display: t.dictionary_form }]).catch(() => {});
+  }
 
   async function load() {
     try {
@@ -117,6 +142,7 @@
 
   /** Sets up the current item. */
   function show() {
+    looked = null;
     typed = "";
     outcome = null;
     hinted = false;
@@ -271,7 +297,7 @@
   const RESULT: Record<string, string> = { recalled: "Recalled", helped: "Right, with help", missed: "Missed" };
 
   function onkey(e: KeyboardEvent) {
-    if (phase !== "play" || mode === "match" || e.isComposing) return;
+    if (phase !== "play" || mode === "match" || e.isComposing || looked) return;
     if (outcome) {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -286,6 +312,15 @@
 </script>
 
 <svelte:window onkeydown={onkey} />
+
+{#snippet words(tokens: ReaderToken[], plain: string)}{#if tokens.length}{#each tokens as t}{#if t.key}<span
+          class="tok"
+          class:selected={looked?.token === t}
+          role="button"
+          tabindex="-1"
+          onclick={(e) => lookUp(t, e)}
+          onkeydown={(e) => e.key === "Enter" && lookUp(t, e)}>{t.surface}</span
+        >{:else}{t.surface}{/if}{/each}{:else}{plain}{/if}{/snippet}
 
 <div class="page review">
   <h1>Review</h1>
@@ -429,8 +464,9 @@
           {/if}
           {#if hasSentence(item)}
             <p class="sentence">
-              <span class="gap-before">{item.before}</span>{#if outcome}<span class="filled" class:missed={!outcome.right}>{item.answer}</span>{:else}<span class="gap" style:min-width="{Math.max(2, item.answer.length) * 1.4}em">{typed}</span>{/if}<span class="gap-after">{item.after}</span>
+              <span class="gap-before">{@render words(item.before_tokens, item.before)}</span>{#if outcome}<span class="filled" class:missed={!outcome.right}>{item.answer}</span>{:else}<span class="gap" style:min-width="{Math.max(2, item.answer.length) * 1.4}em">{typed}</span>{/if}<span class="gap-after">{@render words(item.after_tokens, item.after)}</span>
             </p>
+            {#if item.before_tokens.length || item.after_tokens.length}<p class="muted small">Click a word for its reading and meaning.</p>{/if}
           {:else}
             <p class="muted small">Which word is this?</p>
           {/if}
@@ -538,6 +574,20 @@
     </section>
   {/if}
 </div>
+
+{#if looked && item}
+  <!-- The whole sentence (for a translation, a card) only once the gap is answered: it holds the answer. -->
+  {#key looked.token}
+    <WordPopover
+      token={looked.token}
+      anchor={looked.rect}
+      onclose={closeLook}
+      onmark={markLooked}
+      ondontknow={dontKnowLooked}
+      sentence={outcome ? item.before + item.answer + item.after : ""}
+    />
+  {/key}
+{/if}
 
 <style>
   .page {
@@ -661,6 +711,14 @@
     font-family: var(--font-read);
     font-size: 1.5rem;
     line-height: 2;
+  }
+  .tok {
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .tok:hover,
+  .tok.selected {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
   .gap {
     display: inline-block;

@@ -34,6 +34,11 @@ Type the missing word and press **Enter**. All of these count:
 - or in **romaji** (`wasureta`), so you don't need a Japanese keyboard. Write ん before a vowel
   as `n'` (`kan'i`), long vowels as they are spelled in kana (`gakkou`).
 
+**Click any other word of the sentence** to see its reading and meaning, in the same pop-up as
+in the reader. That doesn't count as help: the answer still counts as recalled. It is recorded
+as a look-up of the word you clicked. Translating the sentence and making a card with it are
+offered in the pop-up once you have answered, because the full sentence holds the answer.
+
 If you're stuck: **Hint** shows the first kana and the length, **Show choices** gives four words
 to pick from, **I don't know** shows the answer.
 

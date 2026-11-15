@@ -15,6 +15,7 @@ use crate::fsrs::{self, Grade, Memory};
 use crate::kana::{is_kana, is_kanji, romaji_to_hiragana, to_hiragana};
 use crate::knowledge::WordState;
 use crate::proficiency::Rng;
+use crate::reader::ReaderToken;
 use crate::store::{Store, now_ms};
 use crate::tokenize::Tokenizer;
 use crate::{Error, Result, WordKey};
@@ -282,7 +283,7 @@ fn kanji_queue(store: &Store, now: i64) -> Result<Vec<KanjiRow>> {
 
 /// One thing to answer. Words: a sentence with a gap (`before`, `after`; both empty when no
 /// sentence was found) and the meaning as the cue. Kanji: four `options`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     /// 'word' or 'kanji'.
     pub kind: String,
@@ -297,6 +298,9 @@ pub struct Item {
     pub has_card: bool,
     pub before: String,
     pub after: String,
+    /// The same two parts as the reader's tokens, so a word in the sentence can be looked up.
+    pub before_tokens: Vec<ReaderToken>,
+    pub after_tokens: Vec<ReaderToken>,
     /// The word as it stands in the sentence (the dictionary form when there is no sentence).
     pub answer: String,
     pub answer_reading: String,
@@ -380,6 +384,8 @@ fn sentences(body: &str) -> Vec<String> {
 struct Found {
     before: String,
     after: String,
+    before_tokens: Vec<ReaderToken>,
+    after_tokens: Vec<ReaderToken>,
     surface: String,
     reading: String,
     from: String,
@@ -395,7 +401,7 @@ fn blank(
     from: &str,
 ) -> Result<Option<Found>> {
     let doc = crate::reader::analyze_text(store, tok, sentence, text_id)?;
-    let toks: Vec<&crate::reader::ReaderToken> = doc.paragraphs.iter().flatten().collect();
+    let toks: Vec<&ReaderToken> = doc.paragraphs.iter().flatten().collect();
     let exact = toks.iter().position(|t| t.key.as_ref() == Some(key));
     let by_lemma = || toks.iter().position(|t| t.key.as_ref().is_some_and(|k| k.lemma == key.lemma));
     let Some(pos) = exact.or_else(by_lemma) else { return Ok(None) };
@@ -407,7 +413,15 @@ fn blank(
     }
     let t = toks[pos];
     let reading: String = t.segments.iter().map(|g| g.ruby.as_deref().unwrap_or(&g.text)).collect();
-    Ok(Some(Found { before, after, surface: t.surface.clone(), reading: to_hiragana(&reading), from: from.to_string() }))
+    Ok(Some(Found {
+        before,
+        after,
+        before_tokens: toks[..pos].iter().map(|t| (*t).clone()).collect(),
+        after_tokens: toks[pos + 1..].iter().map(|t| (*t).clone()).collect(),
+        surface: t.surface.clone(),
+        reading: to_hiragana(&reading),
+        from: from.to_string(),
+    }))
 }
 
 /// A sentence with this word: from the texts where the learner met it (newest first), then from
@@ -535,9 +549,9 @@ fn word_item(
         return Ok(None);
     }
     let has_card = store.knowledge(&c.key)?.is_some();
-    let (before, after, answer, answer_reading, from) = match found {
-        Some(f) => (f.before, f.after, f.surface, f.reading, f.from),
-        None => (String::new(), String::new(), c.display.clone(), c.key.reading.clone(), String::new()),
+    let (before, after, before_tokens, after_tokens, answer, answer_reading, from) = match found {
+        Some(f) => (f.before, f.after, f.before_tokens, f.after_tokens, f.surface, f.reading, f.from),
+        None => (String::new(), String::new(), Vec::new(), Vec::new(), c.display.clone(), c.key.reading.clone(), String::new()),
     };
     let mut accept: Vec<String> = Vec::new();
     for a in [&answer, &answer_reading, &c.display, &c.key.lemma, &c.key.reading] {
@@ -555,6 +569,8 @@ fn word_item(
         has_card,
         before,
         after,
+        before_tokens,
+        after_tokens,
         answer,
         answer_reading,
         from,
@@ -584,6 +600,8 @@ fn kanji_item(lang: &str, k: &KanjiRow, pool: &[(String, String)], rng: &mut Rng
         has_card: true,
         before: String::new(),
         after: String::new(),
+        before_tokens: Vec::new(),
+        after_tokens: Vec::new(),
         answer: k.kanji.clone(),
         answer_reading: String::new(),
         from: String::new(),
@@ -1159,6 +1177,9 @@ mod tests {
         assert_eq!(items.len(), 1, "{items:?}");
         let it = &items[0];
         assert_eq!((it.before.as_str(), it.answer.as_str(), it.after.as_str()), ("駅で", "傘", "を忘れた。"));
+        // The same sentence as tokens, for looking a word up.
+        assert_eq!(it.before_tokens.iter().map(|t| t.surface.as_str()).collect::<String>(), it.before);
+        assert_eq!(it.after_tokens.iter().map(|t| t.surface.as_str()).collect::<String>(), it.after);
         assert_eq!((it.from.as_str(), it.has_card, it.answer_reading.as_str()), ("雨の日", false, "かさ"));
         assert!(matches("kasa", &it.accept) && matches("傘", &it.accept) && !matches("あめ", &it.accept));
         // Listening needs the sentence too; matching needs a meaning, and there is no dictionary here.

@@ -88,3 +88,13 @@ owner's installed version.
 - Not tried against the owner's Anki yet: whether their AnkiConnect version has `answerCards`
   (an old one answers "unsupported action"; Ankura then says to update the add-on and keeps the
   answers waiting).
+
+## Addendum, 2026-11-15: looking up words of the sentence
+
+Owner: "in the review, since we do not have romaji, I would like to be able to click a word and
+see its reading and meaning in the context". A round item now carries the sentence as reader
+tokens (`before_tokens`, `after_tokens`), and the Review screen opens the reader's word pop-up on
+a click. Implementer's choices: a look-up of another word is not help with the gap (the answer
+still counts as recalled and can go to Anki); it is recorded as a look-up event of the clicked
+word; the pop-up gets the full sentence (translation, simpler version, card) only after the
+answer, because the sentence holds it.

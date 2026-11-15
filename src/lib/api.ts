@@ -219,6 +219,9 @@ export interface RoundItem {
   /** The sentence around the gap; both empty when there is no sentence. */
   before: string;
   after: string;
+  /** The same two parts as tokens, to look a word up. */
+  before_tokens: ReaderToken[];
+  after_tokens: ReaderToken[];
   /** The word as it stands in the sentence. */
   answer: string;
   answer_reading: string;
