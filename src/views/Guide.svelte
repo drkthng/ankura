@@ -33,6 +33,7 @@
   const ORDER = [
     "learning",
     "today",
+    "review",
     "reading",
     "write-for-me",
     "cards",

@@ -1,6 +1,6 @@
 //! Talking to Anki. `AnkiSource` is the interface (ADR 0009); AnkiConnect is the desktop
 //! implementation (ADR 0004). AnkiDroid's provider becomes a second implementation later.
-//! Writing is add-only (ADR 0007): the client refuses any action not on its allow-list.
+//! Writing is limited (ADR 0007, 0013, 0022): the client refuses any action not on its allow-list.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -36,6 +36,12 @@ pub trait AnkiSource {
     /// mnemonic field of a mapped kanji note type (ADR 0013).
     fn update_note_field(&self, note_id: i64, field: &str, value: &str) -> Result<()>;
     fn add_tag(&self, note_ids: &[i64], tag: &str) -> Result<()>;
+    /// Whether each card is due for review now (in the same order).
+    fn are_due(&self, card_ids: &[i64]) -> Result<Vec<bool>>;
+    /// Answers cards as a review in Anki would (ease 1 Again … 4 Easy), so Anki's own scheduler
+    /// sets the next date; `false` for a card Anki doesn't have. Only `review::send_anki` calls
+    /// this, with "Good", for due cards of words recalled in Ankura (ADR 0022).
+    fn answer_cards(&self, card_ids: &[i64], ease: i64) -> Result<Vec<bool>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,9 +52,9 @@ pub struct NewNote {
     pub tags: Vec<String>,
 }
 
-/// Every AnkiConnect action Ankura may send. The writes: adding notes (ADR 0007), and changing the
-/// mnemonic field of kanji notes plus tagging them (ADR 0013).
-const ALLOWED_ACTIONS: [&str; 12] = [
+/// Every AnkiConnect action Ankura may send. The writes: adding notes (ADR 0007), changing the
+/// mnemonic field of kanji notes plus tagging them (ADR 0013), and answering due cards (ADR 0022).
+const ALLOWED_ACTIONS: [&str; 14] = [
     "version",
     "modelNamesAndIds",
     "modelFieldNames",
@@ -61,6 +67,8 @@ const ALLOWED_ACTIONS: [&str; 12] = [
     "addNote",
     "updateNoteFields",
     "addTags",
+    "areDue",
+    "answerCards",
 ];
 
 pub struct AnkiConnect {
@@ -195,6 +203,15 @@ impl AnkiSource for AnkiConnect {
         self.call("addTags", json!({ "notes": note_ids, "tags": tag }))?;
         Ok(())
     }
+
+    fn are_due(&self, card_ids: &[i64]) -> Result<Vec<bool>> {
+        serde_json::from_value(self.call("areDue", json!({ "cards": card_ids }))?).map_err(|e| Error::Anki(e.to_string()))
+    }
+
+    fn answer_cards(&self, card_ids: &[i64], ease: i64) -> Result<Vec<bool>> {
+        let answers: Vec<Value> = card_ids.iter().map(|id| json!({ "cardId": id, "ease": ease })).collect();
+        serde_json::from_value(self.call("answerCards", json!({ "answers": answers }))?).map_err(|e| Error::Anki(e.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -270,6 +287,8 @@ pub(crate) mod fake {
             notes.iter().map(|n| (n.model.0, n.fields.first().map(|f| f.1).unwrap_or(""))).collect();
         // Field values changed through updateNoteFields, and tags added.
         let mut changed: BTreeMap<(i64, String), String> = BTreeMap::new();
+        // Cards answered through answerCards: no longer due.
+        let mut answered: HashSet<i64> = HashSet::new();
         thread::spawn(move || {
             for mut req in server.incoming_requests() {
                 let mut body = String::new();
@@ -354,6 +373,27 @@ pub(crate) mod fake {
                     "addTags" => {
                         log.lock().unwrap().push(json!({"addTags": p.clone()}));
                         Value::Null
+                    }
+                    // A review card is due when it is overdue and wasn't answered since.
+                    "areDue" => {
+                        let ids: Vec<i64> = p["cards"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
+                        json!(ids
+                            .iter()
+                            .map(|id| !answered.contains(id) && notes.iter().flat_map(|n| &n.cards).any(|c| c.id == *id && c.overdue > 0))
+                            .collect::<Vec<_>>())
+                    }
+                    "answerCards" => {
+                        let mut found = Vec::new();
+                        for a in p["answers"].as_array().unwrap() {
+                            let id = a["cardId"].as_i64().unwrap();
+                            let exists = notes.iter().flat_map(|n| &n.cards).any(|c| c.id == id);
+                            if exists {
+                                answered.insert(id);
+                            }
+                            found.push(exists);
+                        }
+                        log.lock().unwrap().push(json!({"answerCards": p.clone()}));
+                        json!(found)
                     }
                     "addNote" => {
                         let mut l = log.lock().unwrap();

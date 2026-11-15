@@ -275,7 +275,8 @@ Windows desktop, wants fun and ease). "Effort" is based on the code that exists 
 - *Impact* M-H · *Effort* S (auto-pause, hide text) to M (word timing) · *Depends on*
   VOICEVOX for timing · *Risk:* system voices give no word timing; fall back to sentence level.
 
-**10. Fading-word cloze game (with cloze-listening)**
+**10. Fading-word cloze game (with cloze-listening)** (built 2026-11-15 as Review, ADR 0022; the
+owner chose a schedule of its own and answers sent to Anki, against the limits below)
 - *What:* a 3-minute arcade round: sentences from texts the user actually read, the fading,
   stealth-leech or target word blanked; type or pick it, or hear the sentence and fill the gap.
   A score and a combo, no XP economy. Results feed Ankura's own word state (look-up-like evidence),
@@ -426,7 +427,9 @@ and coverage depend on; #18 gets the benefit without the error.
 noise ([S](https://appireview.pages.dev/com.selabs.speak)); record-and-compare (#16) is honest
 and cheap.
 
-**31. Reading counts as an Anki review / rescheduling from Ankura.** Tempting for the backlog,
+**31. Reading counts as an Anki review / rescheduling from Ankura.** (Partly overturned by the
+owner, ADR 0022: a word recalled by typing in Review answers its due card "Good". Reading alone
+still doesn't count.) Tempting for the backlog,
 but it breaks ADR 0007 (add-only) on a 20-year collection. #2 helps the backlog without touching
 the schedule.
 

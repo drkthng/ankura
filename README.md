@@ -15,6 +15,10 @@ notes.
 - **A daily session in one place.** Today picks six words (fading Anki cards first, then words
   that keep slipping), writes the next episode of your serial story around them, and walks you
   through reading, listening, quick questions and cards. → [Today](docs/guide/today.md)
+- **Review what you're about to forget, as a game.** Short rounds on fading Anki words, words
+  you looked up and kanji: fill the gap in a sentence you read, listen and fill, speed match, a
+  kanji round. Points, a daily goal and a streak. A word you recall is also answered "Good" on
+  its Anki card, so your backlog shrinks while you play. → [Review](docs/guide/review.md)
 - **Make a hard text readable.** For a pasted text under 95% known words, Ankura plans and writes
   simpler retellings at about 95%, which together use every new word of the original.
   → [Simpler versions](docs/guide/reading.md#too-hard-simpler-versions)
@@ -26,8 +30,9 @@ notes.
   computer's Japanese voice or the free VOICEVOX voices. → [Listening](docs/guide/reading.md#listening)
 - **Works with any Anki collection.** Point Ankura at the field that holds the word, even the bold
   word in a sentence card. It reads your cards' intervals (or FSRS memory) and knows which words
-  are solid and which are fading. Ankura only adds
-  cards; the one exception, a kanji mnemonic, changes only when you confirm it. → [Connecting Anki](docs/guide/anki.md)
+  are solid and which are fading. Ankura adds cards and never deletes anything. It changes
+  existing cards in two ways only: a kanji mnemonic when you confirm it, and "Good" on a due card
+  when you recall its word in Review (you can turn that off). → [Connecting Anki](docs/guide/anki.md)
 - **Texts written for you.** Pick a few words to practise. Ankura asks the AI for a short story
   that uses them, about topics you like, checks that at least 95% of its words are ones you know,
   and asks for a rewrite if not. → [Write for me](docs/guide/write-for-me.md)

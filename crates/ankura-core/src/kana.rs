@@ -62,9 +62,137 @@ pub fn is_all_kana(s: &str) -> bool {
     !s.is_empty() && s.chars().all(is_kana)
 }
 
+/// Consonant(s) before a vowel → the kana for a, i, u, e, o ("" where there is none).
+const ROMAJI: &[(&str, [&str; 5])] = &[
+    ("", ["あ", "い", "う", "え", "お"]),
+    ("k", ["か", "き", "く", "け", "こ"]),
+    ("g", ["が", "ぎ", "ぐ", "げ", "ご"]),
+    ("s", ["さ", "し", "す", "せ", "そ"]),
+    ("z", ["ざ", "じ", "ず", "ぜ", "ぞ"]),
+    ("t", ["た", "ち", "つ", "て", "と"]),
+    ("d", ["だ", "ぢ", "づ", "で", "ど"]),
+    ("n", ["な", "に", "ぬ", "ね", "の"]),
+    ("h", ["は", "ひ", "ふ", "へ", "ほ"]),
+    ("b", ["ば", "び", "ぶ", "べ", "ぼ"]),
+    ("p", ["ぱ", "ぴ", "ぷ", "ぺ", "ぽ"]),
+    ("m", ["ま", "み", "む", "め", "も"]),
+    ("r", ["ら", "り", "る", "れ", "ろ"]),
+    ("y", ["や", "", "ゆ", "", "よ"]),
+    ("w", ["わ", "", "", "", "を"]),
+    ("f", ["ふぁ", "ふぃ", "ふ", "ふぇ", "ふぉ"]),
+    ("j", ["じゃ", "じ", "じゅ", "じぇ", "じょ"]),
+    ("sh", ["しゃ", "し", "しゅ", "しぇ", "しょ"]),
+    ("ch", ["ちゃ", "ち", "ちゅ", "ちぇ", "ちょ"]),
+    ("ts", ["", "", "つ", "", ""]),
+    ("ky", ["きゃ", "", "きゅ", "", "きょ"]),
+    ("gy", ["ぎゃ", "", "ぎゅ", "", "ぎょ"]),
+    ("sy", ["しゃ", "", "しゅ", "", "しょ"]),
+    ("zy", ["じゃ", "", "じゅ", "", "じょ"]),
+    ("jy", ["じゃ", "", "じゅ", "", "じょ"]),
+    ("ty", ["ちゃ", "", "ちゅ", "", "ちょ"]),
+    ("dy", ["ぢゃ", "", "ぢゅ", "", "ぢょ"]),
+    ("ny", ["にゃ", "", "にゅ", "", "にょ"]),
+    ("hy", ["ひゃ", "", "ひゅ", "", "ひょ"]),
+    ("by", ["びゃ", "", "びゅ", "", "びょ"]),
+    ("py", ["ぴゃ", "", "ぴゅ", "", "ぴょ"]),
+    ("my", ["みゃ", "", "みゅ", "", "みょ"]),
+    ("ry", ["りゃ", "", "りゅ", "", "りょ"]),
+];
+
+fn vowel_index(c: char) -> Option<usize> {
+    "aiueo".chars().position(|v| v == c)
+}
+
+/// Romaji as typed on a keyboard without a Japanese input method (neko, gakkou, shinbun, kon'ya)
+/// to hiragana. `None` when something in it isn't romaji.
+pub fn romaji_to_hiragana(s: &str) -> Option<String> {
+    let c: Vec<char> = s.trim().to_lowercase().chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '-' {
+            out.push('ー');
+            i += 1;
+            continue;
+        }
+        if ch == ' ' || ch == '\'' {
+            i += 1;
+            continue;
+        }
+        if !ch.is_ascii_lowercase() {
+            return None;
+        }
+        let next = c.get(i + 1).copied();
+        if ch == 'n' {
+            match next {
+                // na, nya: a syllable, handled below.
+                Some(v) if vowel_index(v).is_some() || v == 'y' => {}
+                // nn before a vowel or y is ん + a syllable (onna); otherwise nn is one ん.
+                Some('n') => {
+                    out.push('ん');
+                    let after = c.get(i + 2).copied();
+                    i += if after.is_some_and(|a| vowel_index(a).is_some() || a == 'y') { 1 } else { 2 };
+                    continue;
+                }
+                _ => {
+                    out.push('ん');
+                    i += 1;
+                    continue;
+                }
+            }
+        } else if vowel_index(ch).is_none() && (next == Some(ch) || (ch == 't' && next == Some('c'))) {
+            // A doubled consonant (gakkou, matcha).
+            out.push('っ');
+            i += 1;
+            continue;
+        }
+        let mut matched = false;
+        for len in (0..=2).rev() {
+            let Some(v) = c.get(i + len).copied().and_then(vowel_index) else { continue };
+            let prefix: String = c[i..i + len].iter().collect();
+            if let Some((_, kana)) = ROMAJI.iter().find(|(p, _)| *p == prefix) {
+                if !kana[v].is_empty() {
+                    out.push_str(kana[v]);
+                    i += len + 1;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if !matched {
+            return None;
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn converts_romaji() {
+        let r = |s: &str| romaji_to_hiragana(s).unwrap();
+        assert_eq!(r("neko"), "ねこ");
+        assert_eq!(r("Kyou"), "きょう");
+        assert_eq!(r("gakkou"), "がっこう");
+        assert_eq!(r("shinbun"), "しんぶん");
+        assert_eq!(r("konnichiha"), "こんにちは");
+        assert_eq!(r("onna"), "おんな");
+        assert_eq!(r("kan'i"), "かんい");
+        assert_eq!(r("kann"), "かん");
+        assert_eq!(r("matcha"), "まっちゃ");
+        assert_eq!(r("chiisai"), "ちいさい");
+        assert_eq!(r("tsukue"), "つくえ");
+        assert_eq!(r("wasureru"), "わすれる");
+        assert_eq!(r("ryokou"), "りょこう");
+        assert_eq!(r("fune"), "ふね");
+        assert_eq!(r("jisho"), "じしょ");
+        assert_eq!(r("ra-men"), "らーめん");
+        assert_eq!(romaji_to_hiragana("xq"), None);
+        assert_eq!(romaji_to_hiragana("ねこ"), None);
+    }
 
     #[test]
     fn converts_katakana() {

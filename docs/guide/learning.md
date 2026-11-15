@@ -28,6 +28,7 @@ sources and how strong the evidence is. Ideas for what Ankura should do next are
 | Time | What | Where in Ankura |
 |---|---|---|
 | 15-20 min | Anki reviews, few or no new cards while you have a backlog | Anki, then **Anki → Sync now** in Ankura |
+| 5 min | A round or two of Review: the words you're about to forget | **Review** (or the warm-up on **Today**) |
 | 15-20 min | One new text around your practice words: read it, look words up, make cards | **Write for me** → reader → **Cards** |
 | 10-15 min | Read it again while it's read aloud, at normal speed | reader: **▶ Listen** (or **P**) |
 | 10 min | Listen without reading, or shadow it (repeat after the voice) | reader: **Listen**, look away |
@@ -82,8 +83,8 @@ encounters, spread over days and weeks.
 
 ## Coming back after a break: the Anki backlog
 
-After months away, many cards are overdue. Ankura can't change your Anki schedule, by design. So
-handle the backlog in Anki and use Ankura to make the reviews easier:
+After months away, many cards are overdue. Work on the backlog in Anki, and use Ankura to make
+the reviews easier and to take some of them off your hands:
 
 **In Anki** (expert advice from the FSRS developers and the Anki community, not controlled studies):
 
@@ -102,6 +103,9 @@ handle the backlog in Anki and use Ankura to make the reviews easier:
 
 - Use **fading words** as practice words. Meeting a word in a text just before you review it
   makes the review easier.
+- Play a round of **[Review](review.md)** every day. It asks for your fading words in sentences
+  you read. Each word you recall by typing it is answered "Good" on its Anki card, so that card
+  leaves the backlog without a second review in Anki.
 - **Don't mark a word known** in the reader because it looks familiar. Reading a word is not a
   review, and a wrong "known" makes texts look easier than they are.
 - Coverage is measured against what Anki says you know. While many cards are overdue, a text is
@@ -173,7 +177,8 @@ Ranked by how much they would speed up learning or make it more fun, compared to
 take (full list with sources: [Feature ideas](../research/feature-ideas.md)):
 
 Already built from this list: **Today** (the daily session with backlog rescue), **serial
-stories** and **questions after each text**.
+stories**, **questions after each text**, and **Review** (the cloze game for fading words, with
+its own schedule and answers sent to Anki).
 
 1. **Sentence audio on Anki cards.** The VOICEVOX audio Ankura already makes, added to new cards.
 2. **Clipboard reader and web import.** Copied lines from games, visual novels and web pages flow
@@ -182,9 +187,8 @@ stories** and **questions after each text**.
 4. **Frequency and pitch-accent dictionaries.** Frequency ranks for choosing words; pitch accent
    in the pop-up.
 
-Then: word-level highlighting and auto-pause while listening, a cloze game for fading words,
-writing practice with corrections, grammar points in the reader, a reading log with speed and
+Then: word-level highlighting and auto-pause while listening, writing practice with corrections, grammar points in the reader, a reading log with speed and
 goals, automatic Anki sync, EPUB import, shadowing, audio export for the phone.
 
-Not planned: points, leagues and badges (they reward farming points rather than learning), and
-changing your Anki schedule from Ankura.
+Not planned: leagues, levels and badges (they reward farming points rather than learning), and
+rescheduling Anki cards from reading alone (only a recalled word in Review counts).

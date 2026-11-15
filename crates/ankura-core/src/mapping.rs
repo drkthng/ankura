@@ -163,6 +163,23 @@ fn target_text(mapping: &NoteTypeMapping, fields: &BTreeMap<String, String>) -> 
     }
 }
 
+/// The sentence of a sentence card: the line of the target field that has the one marked word,
+/// when there is more on that line than the word itself.
+fn card_sentence(mapping: &NoteTypeMapping, fields: &BTreeMap<String, String>) -> Option<String> {
+    if mapping.target_mode != TargetMode::Marked {
+        return None;
+    }
+    let field = fields.get(&mapping.target_field)?;
+    let marked = marked_text(field);
+    let [word] = marked.as_slice() else { return None };
+    let word = plain_text(word);
+    let text = plain_text(field);
+    // Furigana in brackets (傘[かさ]) would give the reading away and confuse the gap.
+    let line = text.lines().find(|l| !word.is_empty() && l.contains(word.as_str()) && !l.contains('['))?;
+    let (n, w) = (line.chars().count(), word.chars().count());
+    (n > w + 1 && n <= 120).then(|| line.to_string())
+}
+
 /// Word keys for one note under a mapping.
 pub fn keys_for_note(tok: &dyn Tokenizer, mapping: &NoteTypeMapping, fields: &BTreeMap<String, String>) -> Result<FieldKeys> {
     let reading = mapping.reading_field.as_ref().and_then(|f| fields.get(f)).map(String::as_str);
@@ -374,8 +391,11 @@ pub fn sync_anki(
     let mut cards: Vec<(i64, CardFacts)> = Vec::new();
     let mut card_keys: Vec<(i64, WordKey)> = Vec::new();
     let mut displays: HashMap<WordKey, String> = HashMap::new();
+    // For Review (ADR 0022): the one word a card tests, and the card's sentence.
+    let mut card_words: Vec<crate::review::CardWord> = Vec::new();
     if mappings.is_empty() && kanji_maps.is_empty() {
         store.replace_anki_snapshot(&cards, &card_keys, &displays, settings)?;
+        crate::review::replace_cards(store, &card_words)?;
         kanji::replace_kanji(store, &[], settings)?;
         return Ok(report);
     }
@@ -460,10 +480,21 @@ pub fn sync_anki(
                 }
                 per_type.notes += 1;
             }
+            // A card tests one word when its field gives one word, or one phrase (the phrase's
+            // own words also count as known, but the card doesn't test them).
+            let tested = match fk.outcome {
+                FieldOutcome::Word if fk.keys.len() == 1 => fk.keys.first(),
+                FieldOutcome::Phrase => fk.keys.first(),
+                _ => None,
+            };
+            let sentence = card_sentence(m, &n.fields);
             for &card_id in n.cards.iter().filter(|c| in_scope.contains(c)) {
                 let (f, late) = facts(card_id, n.note_id, intervals.get(&card_id).copied().unwrap_or(0));
                 if late >= 30 {
                     overdue_cards += 1;
+                }
+                if let Some(key) = tested {
+                    card_words.push(crate::review::CardWord { card_id, key: key.clone(), sentence: sentence.clone() });
                 }
                 cards.push((m.model_id, f));
                 for (k, d) in fk.keys.iter().zip(&fk.displays) {
@@ -505,6 +536,7 @@ pub fn sync_anki(
     report.overdue = overdue_cards;
     report.cards = cards.len();
     store.replace_anki_snapshot(&cards, &card_keys, &displays, settings)?;
+    crate::review::replace_cards(store, &card_words)?;
     report.kanji = kanji::replace_kanji(store, &kanji_notes, settings)?;
     Ok(report)
 }

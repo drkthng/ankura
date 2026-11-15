@@ -2,13 +2,14 @@
   // The daily session (ADR 0019): today's words (backlog rescue), today's text (an episode of a
   // serial story or a single text), read and listen, questions, cards.
   import { onMount } from "svelte";
-  import { api, type Pick, type SeriesInfo, type TodayOverview } from "../lib/api";
+  import { api, type Pick, type ReviewOverview, type SeriesInfo, type TodayOverview } from "../lib/api";
   import Quiz from "../components/Quiz.svelte";
 
-  let { onopen, ongo }: { onopen: (id: string) => void; ongo: (view: "cards" | "guide") => void } = $props();
+  let { onopen, ongo }: { onopen: (id: string) => void; ongo: (view: "cards" | "guide" | "review") => void } = $props();
 
   let overview = $state<TodayOverview | null>(null);
   let streak = $state(0);
+  let review = $state<ReviewOverview | null>(null);
   let error = $state("");
   let adding = $state("");
   let writing = $state(false);
@@ -36,6 +37,7 @@
     try {
       overview = await api.todayOverview();
       streak = (await api.readingStats().catch(() => null))?.streak ?? 0;
+      review = await api.reviewOverview().catch(() => null);
       if (overview.series.length) {
         mode = "continue";
         seriesId ||= overview.series[0].series.id;
@@ -125,6 +127,17 @@
     {#if finished}
       <section class="card done-card">
         <p><strong>Done for today.</strong> Reading again later, or listening once more, still counts.</p>
+      </section>
+    {/if}
+
+    {#if review && (review.due_words > 0 || review.due_kanji > 0 || review.today_answers > 0)}
+      <section class="card warmup" class:complete={review.today_right >= review.goal}>
+        <h2>Warm-up: review</h2>
+        <p class="muted small">
+          {review.due_words} {review.due_words === 1 ? "word" : "words"} and {review.due_kanji} kanji are due. Today:
+          <strong>{review.today_right} / {review.goal}</strong> right answers{review.streak > 0 ? `, streak ${review.streak} ${review.streak === 1 ? "day" : "days"}` : ""}.
+        </p>
+        <button class={review.today_right >= review.goal ? "" : "primary"} onclick={() => ongo("review")}>Open Review</button>
       </section>
     {/if}
 
@@ -325,7 +338,8 @@
     color: var(--accent);
     font-weight: 600;
   }
-  .done-card {
+  .done-card,
+  .warmup.complete {
     border-color: var(--accent);
   }
   .link {

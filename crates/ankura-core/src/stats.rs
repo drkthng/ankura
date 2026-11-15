@@ -73,7 +73,7 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-fn parse_day(s: &str) -> Option<i64> {
+pub(crate) fn parse_day(s: &str) -> Option<i64> {
     let mut it = s.split('-').map(|p| p.parse::<i64>().ok());
     let (y, m, d) = (it.next()??, it.next()??, it.next()??);
     Some(days_from_civil(y, m, d))
@@ -85,7 +85,7 @@ fn format_day(n: i64) -> String {
 }
 
 /// Current and best streak from the set of days with reading.
-fn streaks(read: &[i64], today: i64) -> (i64, i64) {
+pub(crate) fn streaks(read: &[i64], today: i64) -> (i64, i64) {
     let mut days = read.to_vec();
     days.sort_unstable();
     days.dedup();

@@ -237,7 +237,7 @@
     <h2>1. Connect</h2>
     <p class="muted">
       Ankura reads your cards through the AnkiConnect add-on (code <code>2055492159</code>). Anki has to be open while
-      Ankura syncs. It only reads; it never changes your collection.
+      Ankura syncs. Syncing only reads your collection.
     </p>
     <div class="row">
       <input class="url" bind:value={url} placeholder="http://127.0.0.1:8765" />

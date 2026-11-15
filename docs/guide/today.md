@@ -4,6 +4,10 @@
 
 **Today** is a daily session in five steps, on one screen. It's Ankura's start screen.
 
+When words or kanji are due in [Review](review.md), a **Warm-up** card sits above the steps, with
+the number due and today's progress towards your goal. A round takes a few minutes and fits well
+before the day's text.
+
 ![Today: today's words, today's text, read and listen, questions, cards](../img/today.png)
 
 ## 1. Your words
@@ -11,7 +15,8 @@
 Ankura picks six words to practise:
 
 - **About half are fading in Anki:** cards that are overdue. Reading them in a text just before
-  your Anki reviews makes those reviews easier (Ankura never changes your Anki schedule).
+  your Anki reviews makes those reviews easier (reading a word doesn't count as a review; only
+  recalling it in [Review](review.md) does).
 - Then a word that **keeps slipping** (Anki says you know it, but you keep looking it up), a word
   you **missed in questions**, one you **looked up**, and words you're **learning** in Anki.
 - Words used in a text since yesterday wait a day.

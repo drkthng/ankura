@@ -1,6 +1,6 @@
 # Handoff to the next session
 
-Updated 2026-10-27, after the third working session (JLPT practice tests; context is cleared after it).
+Updated 2026-11-15 (Review, ADR 0022; written on the owner's Windows machine, see §4a).
 Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 `docs/HANDOFF.md` is the original phase-1 brief; its research tasks are done.
 
@@ -14,6 +14,15 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 - **JLPT practice tests built** (ADR 0015, 2026-10-27): mock exam per level, full or half, timer,
   pass estimate, review with explanations, report bad questions, cards from missed words, retry.
   Tested with fakes only (core tests + e2e).
+- **Review** (ADR 0022, 2026-11-15, owner's request): rounds on what the learner is about to
+  forget, on Ankura's own FSRS schedule (`fsrs.rs`, `review.rs`; tables `review_items`,
+  `review_log`, `review_cards`, `anki_answers`; schema v14). Fill the gap (sentence from a text
+  the learner read or from their Anki card; typed in kanji, kana or romaji), Listen and fill,
+  Speed match, Kanji round; points, combo, daily goal, streak. A word typed without help is
+  answered "Good" on its due Anki card (`areDue`, `answerCards`), which changes ADR 0007.
+  View `Review.svelte`, warm-up card on Today. **Not run end to end yet:** core tests ran in CI
+  only, the e2e steps were added without running them (no Linux here), and nothing was tried
+  against a real Anki.
 - **Help while reading and simpler versions** (ADR 0020-0021, 2026-10-31): Translate this
   sentence (in context) and English | 日本語 meanings in the pop-up (`explain.rs`); simpler
   versions of texts under 95% (`adapt.rs`: plan, write, status, missing words;
@@ -94,23 +103,25 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `voicevox.rs` | VOICEVOX client (ADR 0017): `speakers`, `synthesize` (speed via `speedScale`), `speak` (disk cache by text+speed per style) |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
+| `fsrs.rs` | FSRS-5 memory model for Ankura's own schedule (default weights, three grades, same-day rule) |
+| `review.rs` | Review (ADR 0022): what is due (`word_queue`, `kanji_queue`), `round` (items; `find_sentence`/`blank` make the gap, `choices`), `matches` (typed answers, romaji via `kana::romaji_to_hiragana`), `answer` (result, points, schedule, log), `queue_anki`/`send_anki` (answers for Anki cards), `overview`, `replace_cards` (called by sync: the one word a card tests and its sentence) |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
 | `dict.rs` | Yomitan zip import (plain and structured-content glossaries), lookup by spelling or reading |
 | `reader.rs` | Text → paragraphs of tokens with furigana, state (mark > anki > basic word > parts), coverage; known phrases merged into one token (`phrase_form`: 気になります → 気になる, also used by sync); `phrase` (a selection as one token) |
 | `llm.rs` | Anthropic Messages (raw HTTPS, `anthropic-version: 2026-10-21`, `output_config` format+effort, `fallbacks: "default"`) and OpenRouter |
 | `generate.rs` | `prepare` / `check_draft` / `feedback` / `save`, shared by the automatic loop (`generate_text`: retries, best attempt saved) and copy & paste (`chat_prompt`, `parse_answer` lenient, `submit_answer`); `simplify_sentence` |
-| `anki.rs` | `AnkiSource` trait, AnkiConnect client with an action allow-list (add-only writes: `canAddNotesWithErrorDetail`, `addNote`), in-process fake for tests |
+| `anki.rs` | `AnkiSource` trait, AnkiConnect client with an action allow-list (writes: `canAddNotesWithErrorDetail`, `addNote`; `updateNoteFields`/`addTags` for kanji stories; `areDue`/`answerCards` for Review), in-process fake for tests |
 | `cards.rs` | Card drafts (ADR 0012): `new_sentence` (i+1, checked, retried), `fill_fields` (AI copies the three newest notes of the chosen type), `revise` (change on request), `drafts_for_text`, `add_to_anki` (tag `ankura`) |
 | `src-tauri/src/lib.rs` | App state, all Tauri commands (blocking work via `spawn_blocking`) |
 | `src-tauri/src/downloads.rs` | First-run downloads: SudachiDict (PyPI JSON API), JMdict (yomidevs GitHub release); OS certificate store |
 | `src-tauri/src/secrets.rs` | API keys in the OS keychain (`ANKURA_API_KEY` env overrides for dev) |
-| `src/views/*.svelte` | Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), Test (level check), Practice (practice tests), AnkiSetup (incl. kanji note mapping), Settings |
+| `src/views/*.svelte` | Today, Review (rounds, score, Anki log), Library, Reader (phrase selection, cards for targets), Write ("Write for me": API or copy & paste, "Make cards"), Cards (card list), Stats, Kanji (primitive names), Test (level check), Practice (practice tests), AnkiSetup (incl. kanji note mapping), Settings |
 | `src/components/` | `WordPopover`, `KanjiPanel`, `CoverageBar` |
 | `tools/dev/` | `fake_ankiconnect.py` (incl. a "Satzkarten" note type like the owner's), `fake_llm.py`, `jamdict_to_yomitan.py`, `e2e_smoke.py` |
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0021 in `docs/adr/`. Most relevant now: 0021 (simpler versions), 0020 (translation, 日本語 meanings), 0019 (Today, series, questions), 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0022 in `docs/adr/`. Most relevant now: 0022 (Review, answers sent to Anki), 0021 (simpler versions), 0020 (translation, 日本語 meanings), 0019 (Today, series, questions), 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -153,7 +164,24 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
   `ProxyHandler({})` (the e2e script does).
 - The `claude-api` skill must be loaded before touching `llm.rs` or model choices.
 
+## 4a. Working on the owner's Windows machine (2026-11-15)
+
+- No Rust build here: `cargo check` fails at the first build script (no MSVC linker; the Build
+  Tools install failed). Rust is compiled and tested only by the **Build** workflow after a push.
+- Node is 14, too old for `npm run check`. A portable Node 22 unpacked into a temp folder runs it:
+  `node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json`.
+- `package-lock.json` shows as modified (the old npm rewrote it); don't commit that.
+- No `gh`. CI status: `https://api.github.com/repos/drkthng/ankura/actions/runs` (see §4).
+- Bash heredocs with backticks or brackets break in the tool's shell; write scripts to a file.
+
 ## 5. Next steps, in order
+
+0. **Review, first real use** (ADR 0022): run the e2e once on Linux (the Review steps at the end
+   of `e2e_smoke.py` have never run). With the owner: does their AnkiConnect have `answerCards`
+   (else Ankura says to update the add-on); do recalled words leave the Anki backlog as
+   expected; are the sentences and meanings good cues; is typing (romaji or IME) comfortable;
+   are 10 items and the 20-a-day goal the right size. Their "Japanisch" notes are sentence cards
+   with the word marked, so most fading words should get their card's sentence.
 
 1. **Support the owner's first real use** of what's untested (§1). Likely issues: the AI's story
    language/formatting vs theirs (`kanji::new_story`), quality and cost of the primitive analysis

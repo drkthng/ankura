@@ -3,7 +3,7 @@
     python3 tools/dev/fake_ankiconnect.py [port]      # default 8765
 
 Answers the actions Ankura uses: version, modelNamesAndIds, modelFieldNames, findNotes, findCards,
-notesInfo, getIntervals. Searches support what Ankura sends: mid:N, OR, parentheses, is:new,
+notesInfo, getIntervals, areDue, answerCards (GET /answers lists the cards answered). Searches support what Ankura sends: mid:N, OR, parentheses, is:new,
 is:learn, is:suspended, is:buried, prop:s>=X, prop:r>=X, and deck:NAME (prefix with *).
 """
 import json
@@ -115,6 +115,13 @@ NOTES = build()
 # GET /updates, for tests).
 ADDED = []
 UPDATES = []
+# Cards answered through answerCards (GET /answers): {"cardId": ..., "ease": ...}.
+ANSWERS = []
+
+
+def is_due(card):
+    """A review card whose recall has dropped (Ankura's "fading") counts as due."""
+    return not ({"new", "learn", "suspended"} & card["flags"]) and card["recall"] is not None and card["recall"] < 0.8
 
 
 def tokens(q):
@@ -227,6 +234,21 @@ def act(action, p):
     if action == "addTags":
         UPDATES.append({"addTags": p})
         return None
+    if action == "areDue":
+        by_id = {c["id"]: c for n in NOTES for c in n["cards"]}
+        return [i in by_id and is_due(by_id[i]) for i in p["cards"]]
+    if action == "answerCards":
+        by_id = {c["id"]: c for n in NOTES for c in n["cards"]}
+        out = []
+        for a in p["answers"]:
+            card = by_id.get(a["cardId"])
+            if card is not None:
+                ANSWERS.append(a)
+                if a["ease"] > 1:  # reviewed: recall is back up, the interval grows
+                    card["recall"] = 0.95
+                    card["interval"] = max(1, card["interval"]) * 2
+            out.append(card is not None)
+        return out
     if action == "getIntervals":
         by_id = {c["id"]: c for n in NOTES for c in n["cards"]}
         return [by_id[i]["interval"] for i in p["cards"]]
@@ -235,7 +257,7 @@ def act(action, p):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        data = json.dumps(UPDATES if self.path == "/updates" else ADDED, ensure_ascii=False).encode()
+        data = json.dumps({"/updates": UPDATES, "/answers": ANSWERS}.get(self.path, ADDED), ensure_ascii=False).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))

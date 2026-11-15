@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use ankura_core::anki::{AnkiConnect, AnkiSource};
 use ankura_core::cards::{self, CardTarget};
 use ankura_core::dict::{self, DictEntry, DictionaryInfo};
-use ankura_core::{interests, kanji, practice, primitives, proficiency, quiz, series, today, voicevox};
+use ankura_core::{interests, kanji, practice, primitives, proficiency, quiz, review, series, today, voicevox};
 use ankura_core::generate::{self, ChatOutcome, GenerateRequest, GenerateResult};
 use ankura_core::knowledge::{KnowledgeSettings, WordState};
 use ankura_core::llm::{HttpLlm, LlmConfig, Provider};
@@ -175,7 +175,9 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
 
 #[tauri::command]
 async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()> {
-    const ALLOWED: [&str; 18] = [
+    const ALLOWED: [&str; 20] = [
+        "review_anki",
+        "review_goal",
         "anki_url",
         "anki_query",
         "known_days",
@@ -417,6 +419,10 @@ async fn anki_sync(app: AppHandle) -> CmdResult<SyncReport> {
         let settings = s.knowledge_settings();
         let query = s.setting("anki_query").unwrap_or_default();
         let anki = s.anki();
+        // Answers from Review go first, so the cards are read in their new state (ADR 0022).
+        if let Ok(own) = s.own_store() {
+            let _ = review::send_anki(&own, &anki);
+        }
         mapping::sync_anki(&anki, tok.as_ref(), &mut s.store(), &settings, &query).map_err(err)
     })
     .await
@@ -904,6 +910,66 @@ async fn quiz_submit(app: AppHandle, text_id: String, answers: Vec<(String, usiz
     .await
 }
 
+// --- review (ADR 0022) ---
+
+/// Items in a round.
+const REVIEW_ROUND: usize = 10;
+
+impl AppState {
+    /// Whether words recalled in Review are also answered on their Anki cards (default on).
+    fn review_to_anki(&self) -> bool {
+        self.setting("review_anki").is_none_or(|v| v != "off")
+    }
+}
+
+#[derive(Serialize)]
+struct ReviewOverview {
+    #[serde(flatten)]
+    overview: review::Overview,
+    to_anki: bool,
+}
+
+#[tauri::command]
+async fn review_overview(app: AppHandle, day: String) -> CmdResult<ReviewOverview> {
+    blocking(app, move |s| {
+        let to_anki = s.review_to_anki();
+        let overview = review::overview(&s.store(), "ja", &day).map_err(err)?;
+        Ok(ReviewOverview { overview, to_anki })
+    })
+    .await
+}
+
+/// The items of a round. Works without the Japanese dictionary too (words then come without
+/// sentences).
+#[tauri::command]
+async fn review_round(app: AppHandle, mode: String, extra: bool) -> CmdResult<Vec<review::Item>> {
+    blocking(app, move |s| {
+        let tok = s.tokenizer().ok();
+        let tok = tok.as_deref().map(|t| t as &dyn ankura_core::tokenize::Tokenizer);
+        review::round(&s.store(), tok, "ja", &mode, extra, REVIEW_ROUND).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn review_answer(app: AppHandle, day: String, answer: review::Answer) -> CmdResult<review::Outcome> {
+    blocking(app, move |s| {
+        let to_anki = s.review_to_anki();
+        review::answer(&s.store(), &day, &answer, to_anki).map_err(err)
+    })
+    .await
+}
+
+/// Sends the waiting answers to Anki. On its own connection: Anki may take a moment to answer.
+#[tauri::command]
+async fn review_send(app: AppHandle) -> CmdResult<review::SendReport> {
+    blocking(app, |s| {
+        let anki = s.anki();
+        review::send_anki(&s.own_store()?, &anki).map_err(err)
+    })
+    .await
+}
+
 // --- listening (ADR 0017) ---
 
 #[derive(Serialize)]
@@ -1372,6 +1438,10 @@ pub fn run() {
             series_delete,
             quiz_questions,
             quiz_submit,
+            review_overview,
+            review_round,
+            review_answer,
+            review_send,
             speech_settings,
             speech_text,
             voicevox_speakers,

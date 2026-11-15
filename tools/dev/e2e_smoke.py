@@ -706,6 +706,47 @@ def main():
         print("library search 'ぬいぐるみ':", units, "groups")
         assert units >= 1
 
+        # Review (ADR 0022): what is due, a round of Fill the gap typed right, "Good" sent to Anki.
+        # (Added 2026-11-15 without a run: adjust if a step doesn't hold.)
+        day = time.strftime("%Y-%m-%d")
+        ov = d.invoke("review_overview", {"day": day})
+        print("review:", ov["due_words"], "words due,", ov["due_fading"], "fading in Anki")
+        assert ov["due_words"] >= 1 and ov["to_anki"], ov
+        items = d.invoke("review_round", {"mode": "gap", "extra": False})
+        print("review items:", [(i["display"], i["before"], i["answer"], i["after"], i["from"]) for i in items])
+        assert items and any(i["before"] or i["after"] for i in items), items
+        assert d.invoke("review_round", {"mode": "match", "extra": False}), "speed match needs words with a meaning"
+        d.click("//nav//button[normalize-space()='Review']")
+        d.click("//section[contains(@class,'mode')][.//h2[normalize-space()='Fill the gap']]//button[normalize-space()='Start']")
+        for n in range(len(items) + 2):
+            d.find("//section[contains(@class,'item') or contains(@class,'result')]")
+            if d.js("return !!document.querySelector('.review .result')"):
+                break
+            shown = d.js(
+                "const q = s => document.querySelector('.review ' + s)?.textContent ?? '';"
+                "return [q('.gap-before'), q('.gap-after'), q('.cue')]"
+            )
+            it = next((i for i in items if [i["before"], i["after"], i["gloss"]] == shown), None)
+            assert it, (shown, items)
+            d.type("//input[contains(@class,'answer')]", it["answer"])
+            d.click("//button[normalize-space()='Check']")
+            d.find("//div[contains(@class,'reveal')]")
+            if n == 0:
+                d.shot(out / "17-review-gap.png")
+            d.click("//section[contains(@class,'item')]/button[contains(@class,'primary')]")
+        result = d.text("//section[contains(@class,'result')]")
+        print("review result:", result.replace("\n", " | "))
+        d.shot(out / "17b-review-result.png")
+        assert f"{len(items)} of {len(items)} right" in result, result
+        answered = json.loads(OPENER.open("http://127.0.0.1:8765/answers").read())
+        print("answered in Anki:", answered)
+        assert answered and all(a["ease"] == 3 for a in answered), answered
+        ov = d.invoke("review_overview", {"day": day})
+        assert ov["today_right"] == len(items) and ov["rescued_week"] == len(answered) and ov["waiting"] == 0, ov
+        d.click("//button[normalize-space()='Back to Review']")
+        d.find("//table[contains(@class,'log')]//td[normalize-space()='answered Good']")
+        d.shot(out / "17c-review-home.png")
+
         # The guides inside the app: the learning guide first, links between pages.
         d.click("//nav//button[normalize-space()='How to learn']")
         title = d.text("//article[contains(@class,'md')]//h1")

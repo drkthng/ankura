@@ -93,6 +93,13 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] Translation in context and meanings in simple Japanese in the pop-up (ADR 0020); simpler
       versions of texts under 95% that together cover all their new words (ADR 0021).
 
+- [x] Review (ADR 0022): rounds on what is about to be forgotten (fading Anki words, words from
+      reading without a card, kanji) on Ankura's own FSRS schedule; fill the gap in sentences the
+      learner read, listen and fill, speed match, kanji round; points, daily goal, streak; a
+      recalled word is answered "Good" on its due Anki card.
+- [ ] Review, later: words learned in Ankura shown as such in the reader's colours; typed answers
+      for kanji; undo for an answer sent to Anki.
+
 ## Next: owner's choice
 
 Ranked ideas in `docs/research/feature-ideas.md` (2026-10-30): "Today" daily session, backlog

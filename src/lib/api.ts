@@ -199,6 +199,88 @@ export interface AdaptStatus {
   missing: string[];
 }
 
+// --- review (ADR 0022) ---
+
+export type ReviewMode = "gap" | "listen" | "match" | "kanji";
+
+/** One thing to answer: a word in a sentence with a gap, or a kanji with four choices. */
+export interface RoundItem {
+  kind: "word" | "kanji";
+  key: WordKey;
+  /** Dictionary form, or the kanji. */
+  display: string;
+  reading: string;
+  /** Short meaning; the keyword for kanji. */
+  gloss: string;
+  has_card: boolean;
+  /** The sentence around the gap; both empty when there is no sentence. */
+  before: string;
+  after: string;
+  /** The word as it stands in the sentence. */
+  answer: string;
+  answer_reading: string;
+  /** A text's title, or "your Anki card". */
+  from: string;
+  accept: string[];
+  /** Four choices, or none. */
+  options: string[];
+  option_answer: number;
+  /** Kanji round: what to pick. */
+  ask: "" | "keyword" | "kanji";
+  story: string;
+}
+
+export interface ReviewAnswer {
+  kind: "word" | "kanji";
+  key: WordKey;
+  display: string;
+  mode: ReviewMode;
+  /** A typed answer, checked against `accept`. */
+  typed?: string | null;
+  accept?: string[];
+  /** For answers that aren't typed. */
+  right?: boolean | null;
+  /** A hint was used. */
+  helped?: boolean;
+  /** Right answers in a row before this one. */
+  combo?: number;
+}
+
+export interface ReviewOutcome {
+  right: boolean;
+  result: "recalled" | "helped" | "missed";
+  points: number;
+  next_days: number;
+  /** "Good" for the word's Anki card is waiting to be sent. */
+  anki: boolean;
+}
+
+export interface ReviewSendReport {
+  sent: number;
+  not_due: number;
+  failed: number;
+  waiting: number;
+  error: string | null;
+}
+
+export interface ReviewOverview {
+  due_words: number;
+  due_fading: number;
+  due_kanji: number;
+  tracked: number;
+  today_answers: number;
+  today_right: number;
+  today_points: number;
+  goal: number;
+  streak: number;
+  best_streak: number;
+  rescued_week: number;
+  waiting: number;
+  anki_log: { ts: number; display: string; status: "pending" | "sent" | "not_due" | "failed" | "expired"; detail: string }[];
+  /** Words recalled in Review are also answered on their Anki cards. */
+  to_anki: boolean;
+}
+
 // --- the daily session, serial stories, questions after a text (ADR 0019) ---
 
 export interface Pick {
@@ -618,6 +700,10 @@ export const api = {
   quizQuestions: (textId: string) => invoke<QuizItem[]>("quiz_questions", { textId }),
   quizSubmit: (textId: string, answers: [string, number][]) =>
     invoke<{ right: number; total: number; missed_words: string[] }>("quiz_submit", { textId, answers }),
+  reviewOverview: () => invoke<ReviewOverview>("review_overview", { day: localDay() }),
+  reviewRound: (mode: ReviewMode, extra: boolean) => invoke<RoundItem[]>("review_round", { mode, extra }),
+  reviewAnswer: (answer: ReviewAnswer) => invoke<ReviewOutcome>("review_answer", { day: localDay(), answer }),
+  reviewSend: () => invoke<ReviewSendReport>("review_send"),
   chatPrompt: (request: GenerateRequest) => invoke<string>("chat_prompt", { request }),
   chatSubmit: (request: GenerateRequest, answer: string, attempts: number, keep: boolean) =>
     invoke<ChatOutcome>("chat_submit", { request, answer, attempts, keep }),

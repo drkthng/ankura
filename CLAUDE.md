@@ -6,8 +6,9 @@ to generate interest-tailored n+1 texts with a high share of known words.
 
 **Status:** desktop app for Japanese. M1 and M2 in daily use with the owner's API key. M3
 (cards, phrases, stats, kanji/RTK, furigana fixes, interests, level check, JLPT practice tests,
-kept and reused AI output, listening in the reader and in practice tests, Today with serial stories and questions, translation in context, simpler versions;
-ADRs 0012-0021) built
+kept and reused AI output, listening in the reader and in practice tests, Today with serial stories and questions, translation in context, simpler versions,
+Review rounds on Ankura's own schedule with answers sent to Anki;
+ADRs 0012-0022) built
 and tested with fakes; the owner is trying them on their collection. **Start with `docs/NEXT-SESSION.md`** (state, owner, code
 map, cloud-session tips, next steps), then `docs/ROADMAP.md` and the ADRs in `docs/adr/`.
 `docs/HANDOFF.md` is the original phase-1 brief (vision, requirements); its tasks are done.

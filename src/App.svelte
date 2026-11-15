@@ -13,8 +13,9 @@
   import Practice from "./views/Practice.svelte";
   import Guide from "./views/Guide.svelte";
   import Today from "./views/Today.svelte";
+  import Review from "./views/Review.svelte";
 
-  type View = { name: "today" } | { name: "library" } | { name: "reader"; id: string; today?: boolean } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "practice" } | { name: "guide" } | { name: "anki"; focus?: string } | { name: "settings" };
+  type View = { name: "today" } | { name: "review" } | { name: "library" } | { name: "reader"; id: string; today?: boolean } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "practice" } | { name: "guide" } | { name: "anki"; focus?: string } | { name: "settings" };
 
   let view = $state<View>({ name: "today" });
 
@@ -50,6 +51,7 @@
       <span>Ankura</span>
     </div>
     <button class:active={view.name === "today" || (view.name === "reader" && view.today)} onclick={() => (view = { name: "today" })}>Today</button>
+    <button class:active={view.name === "review"} onclick={() => (view = { name: "review" })}>Review</button>
     <button class:active={view.name === "library" || (view.name === "reader" && !view.today)} onclick={() => (view = { name: "library" })}>
       Library
     </button>
@@ -77,6 +79,8 @@
     {/if}
     {#if view.name === "today"}
       <Today onopen={openFromToday} ongo={(name) => (view = { name })} />
+    {:else if view.name === "review"}
+      <Review ongo={(name) => (view = { name })} />
     {:else if view.name === "library"}
       <Library {status} onopen={(id) => (view = { name: "reader", id })} ongo={(name) => (view = { name })} />
     {:else if view.name === "reader"}

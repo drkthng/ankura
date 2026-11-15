@@ -1,6 +1,7 @@
 # 0007. Writing to Anki: add-only in v1
 
-- Status: accepted
+- Status: accepted; amended by [0013](0013-kanji-and-rtk-mnemonics.md) (kanji mnemonic field) and
+  [0022](0022-review-rounds-and-anki-answers.md) ("Good" on due cards of words recalled in Review)
 - Date: 2026-10-26
 - Deciders: owner, via AskUserQuestion in the phase 1 session
 
