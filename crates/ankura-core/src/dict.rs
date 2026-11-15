@@ -3,7 +3,9 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -63,6 +65,91 @@ fn flatten(v: &Value, out: &mut String) {
         }
         _ => {}
     }
+}
+
+/// What a part of a Wiktionary entry is (wiktionary-to-yomitan marks them): "glosses",
+/// "Etymology-content", "details-entry-examples", "tags", "backlink"…
+fn marked(v: &Value) -> &str {
+    v.get("data").and_then(|d| d.get("content")).and_then(Value::as_str).unwrap_or("")
+}
+
+/// The text of one gloss: its words and sub-glosses, without examples, tags and other marked parts.
+fn gloss_text(v: &Value, out: &mut String) {
+    match v {
+        Value::String(s) => out.push_str(s),
+        Value::Array(items) => items.iter().for_each(|i| gloss_text(i, out)),
+        Value::Object(map) => {
+            if !marked(v).is_empty() {
+                return;
+            }
+            if map.get("tag").and_then(Value::as_str) == Some("li") && !out.trim().is_empty() && !out.trim_end().ends_with(';') {
+                out.push_str("; ");
+            }
+            if let Some(c) = map.get("content") {
+                gloss_text(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The glosses of a Wiktionary entry, one per sense; empty for other dictionaries.
+fn wiktionary_glosses(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Array(items) => items.iter().for_each(|i| wiktionary_glosses(i, out)),
+        Value::Object(map) => {
+            if marked(v) == "glosses" {
+                let items: Vec<&Value> = match map.get("content") {
+                    Some(Value::Array(a)) => a.iter().collect(),
+                    Some(one) => vec![one],
+                    None => vec![],
+                };
+                for li in items {
+                    let mut s = String::new();
+                    gloss_text(li.get("content").unwrap_or(li), &mut s);
+                    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if !s.is_empty() {
+                        out.push(s);
+                    }
+                }
+            } else if let Some(c) = map.get("content") {
+                wiktionary_glosses(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+static FORM_OF: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?:person|singular|plural|indicative|subjunctive|imperative|conditional|participle|gerund|infinitive|form|feminine|masculine|superlative|historic|imperfect|preterite|future|present) of ([^\s,:;()]+)",
+    )
+    .unwrap()
+});
+static COMPOUND_OF: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^compound of the (?:infinitive|gerund|imperative|past participle|present participle) ([^\s,:;()]+)").unwrap());
+
+/// The word a gloss says this entry is a form of, when the gloss is nothing but that: "third-person
+/// singular present indicative of avere", "compound of dando, the gerund of dare, with lo"
+/// (the last word named), "compound of the infinitive parlare with ne", "apocopic form of poco".
+fn form_of(gloss: &str) -> Option<String> {
+    let first = gloss.split_whitespace().next().unwrap_or("");
+    if matches!(first, "a" | "an" | "the" | "to" | "used" | "used," | "any" | "one" | "synonym" | "suffix" | "prefix" | "stem,") {
+        return None;
+    }
+    let target = match FORM_OF.captures_iter(gloss).last() {
+        Some(c) => c[1].to_string(),
+        None => COMPOUND_OF.captures(gloss)?[1].to_string(),
+    };
+    let t = target.trim_matches(|c: char| !c.is_alphabetic() && c != '\'');
+    (!t.is_empty()).then(|| t.to_string())
+}
+
+/// The senses of an entry, and whether they are a Wiktionary entry's glosses.
+fn senses_of(glossary: &Value) -> (Vec<String>, bool) {
+    let mut glosses = Vec::new();
+    wiktionary_glosses(glossary, &mut glosses);
+    if glosses.is_empty() { (gloss_to_senses(glossary), false) } else { (glosses, true) }
 }
 
 fn gloss_to_senses(glossary: &Value) -> Vec<String> {
@@ -160,9 +247,22 @@ pub fn import_yomitan_zip(store: &mut Store, path: &Path) -> Result<DictionaryIn
                     continue;
                 }
                 let score = r.get(4).and_then(Value::as_i64).unwrap_or(0);
-                let senses = gloss_to_senses(r.get(5).unwrap_or(&Value::Null));
+                let (senses, wiktionary) = senses_of(r.get(5).unwrap_or(&Value::Null));
                 if senses.is_empty() {
                     continue;
+                }
+                // An entry that only says which form it is (sono: "first-person singular present
+                // indicative of essere") is a form, not a word of its own.
+                if wiktionary {
+                    let targets: Vec<String> = senses.iter().filter_map(|s| form_of(s)).collect();
+                    if targets.len() == senses.len() {
+                        for (lemma, info) in targets.iter().zip(&senses) {
+                            if lemma != expression {
+                                ins_form.execute(params![dict_id, expression, lemma, info])?;
+                            }
+                        }
+                        continue;
+                    }
                 }
                 let sequence = r.get(6).and_then(Value::as_i64).unwrap_or(0);
                 let term_tags = r.get(7).and_then(Value::as_str).unwrap_or("");
@@ -251,6 +351,55 @@ mod tests {
 
     use super::*;
 
+
+    #[test]
+    fn wiktionary_entries_keep_their_glosses_and_forms_go_to_the_form_table() {
+        let entry = |glosses: serde_json::Value| {
+            json!({"type": "structured-content", "content": [
+                {"tag": "div", "content": [{"tag": "div", "data": {"content": "preamble"}, "content": [
+                    {"tag": "details", "data": {"content": "details-entry-Etymology"}, "content": [
+                        {"tag": "summary", "data": {"content": "summary-entry"}, "content": "Etymology"},
+                        {"tag": "div", "data": {"content": "Etymology-content"}, "content": "Inherited from Latin."}]}]}]},
+                {"tag": "ol", "data": {"content": "glosses"}, "lang": "en", "content": glosses},
+                {"tag": "div", "data": {"content": "backlink"}, "content": "Wiktionary"}
+            ]})
+        };
+        let li = |text: &str| json!({"tag": "li", "content": [{"tag": "div", "content": [text]}]});
+        let house = json!({"tag": "li", "content": [
+            {"tag": "div", "content": ["homeland", {"tag": "details", "data": {"content": "details-entry-examples"}, "content": "an example"}]},
+            {"tag": "ul", "content": [{"tag": "li", "content": [{"tag": "div", "data": {"content": "tags"}, "content": "fig"}, "one's customs"]}]}
+        ]});
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("w.zip");
+        write_zip(
+            &path,
+            &[(
+                "term_bank_1.json",
+                json!([
+                    ["casa", "", "n fem", "", 0, [entry(json!([li("house"), house]))], 0, ""],
+                    ["sono", "", "v sg", "", 0, [entry(json!([li("first-person singular present indicative of essere: (I) am, I'm")]))], 0, ""],
+                    ["dandolo", "", "v", "", 0, [entry(json!([li("compound of dando, the gerund of dare, with lo")]))], 0, ""],
+                    ["parlarne", "", "v", "", 0, [entry(json!([li("compound of the infinitive parlare with ne")]))], 0, ""],
+                    ["amo", "", "n masc", "", 0, [entry(json!([li("hook")]))], 0, ""],
+                    ["governo", "", "n", "", 0, [entry(json!([li("a form of rule"), li("government")]))], 0, ""],
+                    ["case", "", "non-lemma", "", 0, [["casa", ["plural"]]], 0, ""],
+                    ["dímelo", "", "non-lemma", "v", 0, [["decir combined with indirect object me and direct object lo", ["imperative"]]], 0, ""]
+                ]),
+            )],
+        );
+        let mut s = Store::open_in_memory().unwrap();
+        let info = import_yomitan_zip(&mut s, &path).unwrap();
+        assert_eq!(info.terms, 3, "casa, amo, governo");
+        assert_eq!(lookup(&s, "casa", "").unwrap()[0].senses, ["house", "homeland; one's customs"]);
+        assert!(lookup(&s, "sono", "").unwrap().is_empty() && lookup(&s, "case", "").unwrap().is_empty());
+        let mut st = s.conn.prepare("SELECT form, lemma FROM word_forms ORDER BY form").unwrap();
+        let forms: Vec<(String, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+        let want = [("case", "casa"), ("dandolo", "dare"), ("dímelo", "decir"), ("parlarne", "parlare"), ("sono", "essere")];
+        assert_eq!(forms, want.map(|(f, l)| (f.to_string(), l.to_string())));
+        assert_eq!(form_of("apocopic form of poco"), Some("poco".to_string()));
+        assert_eq!(form_of("a form of government"), None);
+        assert_eq!(form_of("hook"), None);
+    }
 
     #[test]
     fn import_and_lookup() {

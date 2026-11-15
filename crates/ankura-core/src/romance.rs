@@ -15,7 +15,7 @@ use crate::tokenize::{Token, TokenKind, Tokenizer};
 use crate::{Error, Result};
 
 /// Dictionary tags of words that are grammar, not vocabulary: not counted in coverage.
-const FUNCTION_TAGS: &[&str] = &["prep", "conj", "det", "article", "art", "pron", "contr", "contraction", "particle"];
+const FUNCTION_TAGS: &[&str] = &["prep", "conj", "det", "artic", "article", "art", "pron", "contr", "contraction", "particle"];
 
 /// Verbs so common that a form of theirs is that verb, whatever else it could be (era, sale, fue).
 const COMMON_VERBS_IT: &[&str] = &[
@@ -173,7 +173,7 @@ impl RomanceTokenizer {
 
     /// The words this form is a form of.
     fn lemmas(conn: &Connection, form: &str) -> Result<Vec<String>> {
-        let mut st = conn.prepare_cached("SELECT DISTINCT lemma FROM word_forms WHERE form = ?1 LIMIT 8")?;
+        let mut st = conn.prepare_cached("SELECT lemma FROM word_forms WHERE form = ?1 GROUP BY lemma ORDER BY min(rowid) LIMIT 8")?;
         let rows = st.query_map([form], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -246,6 +246,11 @@ impl RomanceTokenizer {
         let common_verb = lemmas.iter().map(String::as_str).find(|l| common.contains(l));
         let chosen: Option<String> = in_anki.or(common_verb).or(candidates.first().copied()).map(str::to_string);
         let (lemma, unknown) = match chosen {
+            // A form of a form (po' → puoi → potere): one more step, if the dictionary has one.
+            Some(l) if l != form && Self::headword(conn, &l)?.is_none() => {
+                let next = Self::lemmas(conn, &l)?.into_iter().map(|x| clean_lemma(&x)).find(|x| !x.is_empty() && *x != l);
+                (next.unwrap_or(l), false)
+            }
             Some(l) => (l, false),
             None => match self.clitic_verb(conn, form)? {
                 Some(l) => (l, false),
@@ -393,6 +398,10 @@ mod tests {
         // stays itself (sale), and attached pronouns come off the verb.
         let l = |text: &str| lemmas(&tok, text).into_iter().map(|t| t.1).collect::<Vec<_>>();
         assert_eq!(l("era sale parlarne dammelo"), ["essere", "sale", "parlare", "dare"]);
+        // A form of a form is followed to the word: puoi isn't an entry, potere is.
+        store.conn.execute("INSERT INTO word_forms (dict_id, form, lemma, info) VALUES (1, 'po''', 'puoi', ''), (1, 'puoi', 'potere', '')", []).unwrap();
+        store.conn.execute("INSERT INTO dict_terms (dict_id, expression, reading, tags, score, glossary, sequence, term_tags) VALUES (1, 'potere', 'potere', 'v', 0, '[]', 0, '')", []).unwrap();
+        assert_eq!(l("un po'"), ["un", "potere"]);
         // A name the dictionary doesn't have, in the middle of a sentence.
         assert_eq!(lemmas(&tok, "amico Gianni")[1], row("Gianni", "Gianni", TokenKind::Name));
         // What the learner has in Anki wins: with a card for salire, sale is salire.

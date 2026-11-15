@@ -40,6 +40,12 @@ Research on 2026-11-15 (files fetched and inspected, not from memory):
    VOICEVOX.
 3. **One dictionary download per language** gives the meanings and the forms. On import, rows
    tagged `non-lemma` go into a form table (`word_forms`, schema v15) instead of the entries.
+   The Italian file, inspected on 2026-11-15, also has about 18,700 entries that are forms
+   described in words (sono: "first-person singular present indicative of essere"; dandolo:
+   "compound of dando, the gerund of dare, with lo"), among them the most frequent irregular
+   verb forms. An entry whose every gloss is such a description goes into the form table too
+   (`dict::form_of`). Of an entry only the glosses are kept as senses, not the etymology, grammar
+   notes, examples and links.
 4. **Tokenizer** (`romance.rs`, behind the `Tokenizer` trait): words are split at spaces,
    punctuation and elisions (l'amico → l' + amico; po', da' stay whole). A word's dictionary form
    is chosen in this order: a grammar word is itself (articles, prepositions, pronouns,
