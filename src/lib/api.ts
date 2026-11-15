@@ -65,6 +65,9 @@ export interface KnowledgeSettings {
 }
 
 export interface Status {
+  /** The language being learned, and the ones to choose from: [code, English name]. */
+  lang: string;
+  languages: [string, string][];
   tokenizer_ready: boolean;
   sudachi_path: string | null;
   dictionaries: DictionaryInfo[];
@@ -651,6 +654,8 @@ export interface NewEvent {
 export const api = {
   status: () => invoke<Status>("app_status"),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
+  setLanguage: (lang: string) => invoke<void>("set_language", { lang }),
+  downloadWiktionary: () => invoke<DictionaryInfo>("download_wiktionary"),
   setSudachiPath: (path: string) => invoke<void>("set_sudachi_path", { path }),
   downloadSudachi: () => invoke<string>("download_sudachi"),
   importDictionary: (path: string) => invoke<DictionaryInfo>("import_dictionary", { path }),

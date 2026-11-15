@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::knowledge::{CardFacts, KnowledgeSettings, WordState, word_state};
 use crate::{Result, WordKey};
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -113,6 +113,18 @@ CREATE TABLE dict_terms (
 );
 CREATE INDEX dict_terms_expression ON dict_terms (expression);
 CREATE INDEX dict_terms_reading ON dict_terms (reading);
+"#;
+
+/// Inflected forms and the words they belong to (case → casa), from dictionaries that list them
+/// (ADR 0023); added in version 15. The Italian and Spanish tokenizer reads it.
+const FORMS_SCHEMA: &str = r#"
+CREATE TABLE word_forms (
+    dict_id INTEGER NOT NULL REFERENCES dictionaries (id) ON DELETE CASCADE,
+    form TEXT NOT NULL,
+    lemma TEXT NOT NULL,
+    info TEXT NOT NULL             -- what form it is, as the dictionary says it
+);
+CREATE INDEX word_forms_form ON word_forms (form);
 "#;
 
 /// Anki cards being prepared (ADR 0012); added in version 5.
@@ -292,6 +304,7 @@ impl Store {
             conn.execute_batch(crate::today::TODAY_SCHEMA)?;
             conn.execute_batch(crate::series::SERIES_SCHEMA)?;
             conn.execute_batch(crate::review::REVIEW_SCHEMA)?;
+            conn.execute_batch(FORMS_SCHEMA)?;
         }
         if version == 1 {
             conn.execute_batch("ALTER TABLE note_type_mappings ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'field';")?;
@@ -333,6 +346,9 @@ impl Store {
         }
         if (1..=13).contains(&version) {
             conn.execute_batch(crate::review::REVIEW_SCHEMA)?;
+        }
+        if (1..=14).contains(&version) {
+            conn.execute_batch(FORMS_SCHEMA)?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

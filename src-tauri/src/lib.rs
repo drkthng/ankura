@@ -19,18 +19,31 @@ use ankura_core::reader::{self, ReaderDoc};
 use ankura_core::store::{
     CardDraft, KnownWord, NewCardDraft, NewEvent, NoteTypeMapping, Store, StudyWord, TextMeta, WordStats,
 };
-use ankura_core::tokenize::SudachiTokenizer;
+use ankura_core::romance::RomanceTokenizer;
+use ankura_core::tokenize::{SudachiTokenizer, Tokenizer};
 use ankura_core::WordKey;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Settings that hold for every language; the rest are kept per language (ADR 0023).
+const GLOBAL_SETTINGS: [&str; 5] = ["anki_url", "ai_provider", "ai_model", "ai_effort", "ai_mode"];
+
+/// Each language has its own database: `ankura.db` for Japanese (the first one), `ankura-it.db`…
+fn db_file(data_dir: &std::path::Path, lang: &str) -> PathBuf {
+    data_dir.join(if lang == "ja" { "ankura.db".to_string() } else { format!("ankura-{lang}.db") })
+}
+
 pub struct AppState {
+    /// The database of the language being learned.
     store: Mutex<Store>,
+    /// The language being learned: "ja", "it" or "es".
+    lang: RwLock<String>,
     /// Set to stop a running primitive analysis after its current batch.
     stop_analysis: std::sync::atomic::AtomicBool,
     /// Set to stop preparing a practice test after its current round.
     stop_practice: std::sync::atomic::AtomicBool,
-    tokenizer: RwLock<Option<Arc<SudachiTokenizer>>>,
+    /// The tokenizer of the language being learned, once its dictionary is there.
+    tokenizer: RwLock<Option<Arc<dyn Tokenizer>>>,
     data_dir: PathBuf,
 }
 
@@ -41,12 +54,66 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 impl AppState {
-    fn tokenizer(&self) -> CmdResult<Arc<SudachiTokenizer>> {
-        self.tokenizer
-            .read()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| "The Japanese dictionary (SudachiDict) isn't set up yet. Open Settings to download it.".into())
+    fn lang(&self) -> String {
+        self.lang.read().unwrap().clone()
+    }
+
+    fn tokenizer(&self) -> CmdResult<Arc<dyn Tokenizer>> {
+        self.tokenizer.read().unwrap().clone().ok_or_else(|| {
+            let lang = self.lang();
+            if lang == "ja" {
+                "The Japanese dictionary (SudachiDict) isn't set up yet. Open Settings to download it.".to_string()
+            } else {
+                format!("The {} dictionary isn't set up yet. Open Settings to download it.", ankura_core::language_name(&lang))
+            }
+        })
+    }
+
+    /// Loads the tokenizer of the language being learned, if its dictionary is there.
+    fn reload_tokenizer(&self) {
+        let lang = self.lang();
+        let tok: Option<Arc<dyn Tokenizer>> = if lang == "ja" {
+            // Development and testing: a preset dictionary through the environment.
+            let path = std::env::var("ANKURA_SUDACHI_DIC").ok().or_else(|| {
+                Store::open(&db_file(&self.data_dir, "ja")).ok().and_then(|s| s.setting("sudachi_dic").ok().flatten())
+            });
+            path.and_then(|p| match SudachiTokenizer::load(std::path::Path::new(&p)) {
+                Ok(t) => Some(Arc::new(t) as Arc<dyn Tokenizer>),
+                Err(e) => {
+                    eprintln!("Sudachi dictionary at {p} didn't load: {e}");
+                    None
+                }
+            })
+        } else {
+            RomanceTokenizer::open(&db_file(&self.data_dir, &lang), &lang)
+                .ok()
+                .filter(|t| t.ready())
+                .map(|t| Arc::new(t) as Arc<dyn Tokenizer>)
+        };
+        *self.tokenizer.write().unwrap() = tok;
+    }
+
+    /// Switches to another language: its database (made on first use, with the settings that
+    /// hold for every language) and its tokenizer. Remembered for the next start.
+    fn switch_language(&self, lang: &str) -> CmdResult<()> {
+        if !ankura_core::LANGUAGES.iter().any(|(code, _)| *code == lang) {
+            return Err(format!("unknown language {lang}"));
+        }
+        let path = db_file(&self.data_dir, lang);
+        let fresh = !path.exists();
+        let new_store = Store::open(&path).map_err(err)?;
+        if fresh {
+            for key in GLOBAL_SETTINGS {
+                if let Some(v) = self.setting(key) {
+                    new_store.set_setting(key, &v).map_err(err)?;
+                }
+            }
+        }
+        Store::open(&db_file(&self.data_dir, "ja")).map_err(err)?.set_setting("language", lang).map_err(err)?;
+        *self.store.lock().unwrap() = new_store;
+        *self.lang.write().unwrap() = lang.to_string();
+        self.reload_tokenizer();
+        Ok(())
     }
 
     fn store(&self) -> std::sync::MutexGuard<'_, Store> {
@@ -88,7 +155,7 @@ impl AppState {
     /// Its own connection, so the app's shared one isn't locked while the AI writes (WAL mode lets
     /// both work at once).
     fn own_store(&self) -> CmdResult<Store> {
-        Store::open(&self.data_dir.join("ankura.db")).map_err(err)
+        Store::open(&db_file(&self.data_dir, &self.lang())).map_err(err)
     }
 
     fn card_target(&self) -> CmdResult<CardTarget> {
@@ -119,9 +186,12 @@ impl AppState {
         }
     }
 
+    /// Loads SudachiDict from `path` (checks that it loads; used while Japanese is the language).
     fn load_tokenizer(&self, path: &std::path::Path) -> CmdResult<()> {
-        let t = SudachiTokenizer::load(path).map_err(err)?;
-        *self.tokenizer.write().unwrap() = Some(Arc::new(t));
+        let t: Arc<dyn Tokenizer> = Arc::new(SudachiTokenizer::load(path).map_err(err)?);
+        if self.lang() == "ja" {
+            *self.tokenizer.write().unwrap() = Some(t);
+        }
         Ok(())
     }
 }
@@ -140,6 +210,9 @@ async fn blocking<T: Send + 'static>(
 
 #[derive(Serialize)]
 struct Status {
+    /// The language being learned, and the ones to choose from (code, English name).
+    lang: String,
+    languages: Vec<(&'static str, &'static str)>,
     tokenizer_ready: bool,
     sudachi_path: Option<String>,
     dictionaries: Vec<DictionaryInfo>,
@@ -156,6 +229,8 @@ async fn app_status(app: AppHandle) -> CmdResult<Status> {
     blocking(app, |s| {
         let store = s.store();
         Ok(Status {
+            lang: s.lang(),
+            languages: ankura_core::LANGUAGES.to_vec(),
             tokenizer_ready: s.tokenizer.read().unwrap().is_some(),
             sudachi_path: store.setting("sudachi_dic").map_err(err)?,
             dictionaries: dict::dictionaries(&store).map_err(err)?,
@@ -200,7 +275,43 @@ async fn set_setting(app: AppHandle, key: String, value: String) -> CmdResult<()
     if !ALLOWED.contains(&key.as_str()) {
         return Err(format!("unknown setting {key}"));
     }
-    blocking(app, move |s| s.store().set_setting(&key, &value).map_err(err)).await
+    blocking(app, move |s| {
+        s.store().set_setting(&key, &value).map_err(err)?;
+        // A setting that holds for every language also goes into the other languages' databases.
+        if GLOBAL_SETTINGS.contains(&key.as_str()) {
+            let current = s.lang();
+            for (code, _) in ankura_core::LANGUAGES {
+                let path = db_file(&s.data_dir, code);
+                if code != current && path.exists() {
+                    Store::open(&path).map_err(err)?.set_setting(&key, &value).map_err(err)?;
+                }
+            }
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Switches the language being learned (ADR 0023).
+#[tauri::command]
+async fn set_language(app: AppHandle, lang: String) -> CmdResult<()> {
+    blocking(app, move |s| s.switch_language(&lang)).await
+}
+
+/// Downloads the Wiktionary dictionary of the language being learned (Italian or Spanish to
+/// English: meanings, and the forms of each word for the tokenizer) and imports it.
+#[tauri::command]
+async fn download_wiktionary(app: AppHandle) -> CmdResult<DictionaryInfo> {
+    let handle = app.clone();
+    blocking(app, move |s| {
+        let lang = s.lang();
+        let zip = downloads::wiktionary(&handle, &s.data_dir.join("downloads"), &lang)?;
+        let info = dict::import_yomitan_zip(&mut s.store(), &zip).map_err(err)?;
+        let _ = std::fs::remove_file(zip);
+        s.reload_tokenizer();
+        Ok(info)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -227,7 +338,14 @@ async fn download_sudachi(app: AppHandle) -> CmdResult<String> {
 
 #[tauri::command]
 async fn import_dictionary(app: AppHandle, path: String) -> CmdResult<DictionaryInfo> {
-    blocking(app, move |s| dict::import_yomitan_zip(&mut s.store(), std::path::Path::new(&path)).map_err(err)).await
+    blocking(app, move |s| {
+        let info = dict::import_yomitan_zip(&mut s.store(), std::path::Path::new(&path)).map_err(err)?;
+        if s.lang() != "ja" {
+            s.reload_tokenizer(); // the dictionary's form table is what the tokenizer reads
+        }
+        Ok(info)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -263,7 +381,7 @@ async fn add_text(app: AppHandle, title: String, body: String) -> CmdResult<Text
         } else {
             title.trim().to_string()
         };
-        s.store().add_text("ja", &title, &body, "paste").map_err(err)
+        s.store().add_text(&s.lang(), &title, &body, "paste").map_err(err)
     })
     .await
 }
@@ -330,7 +448,7 @@ async fn word_info(app: AppHandle, key: WordKey, surface: String) -> CmdResult<W
 /// Corrects the reading of a written form, everywhere or (with `text_id`) in one text; `None` removes it.
 #[tauri::command]
 async fn set_reading_fix(app: AppHandle, surface: String, reading: Option<String>, text_id: Option<String>) -> CmdResult<()> {
-    blocking(app, move |s| s.store().set_reading_fix("ja", &surface, reading.as_deref(), text_id.as_deref()).map_err(err)).await
+    blocking(app, move |s| s.store().set_reading_fix(&s.lang(), &surface, reading.as_deref(), text_id.as_deref()).map_err(err)).await
 }
 
 #[tauri::command]
@@ -839,13 +957,14 @@ struct TodayOverview {
 #[tauri::command]
 async fn today_overview(app: AppHandle, day: String) -> CmdResult<TodayOverview> {
     blocking(app, move |s| {
+        let lang = s.lang();
         let store = s.store();
         let mut session = today::session(&store, &day).map_err(err)?;
         if session.words.is_empty() && session.text_id.is_none() {
-            session.words = today::practice_words(&store, "ja", 6).map_err(err)?;
+            session.words = today::practice_words(&store, &lang, 6).map_err(err)?;
             today::save_session(&store, &session).map_err(err)?;
         }
-        Ok(TodayOverview { rescue: today::rescue(&store, "ja").map_err(err)?, series: series::list(&store).map_err(err)?, session })
+        Ok(TodayOverview { rescue: today::rescue(&store, &lang).map_err(err)?, series: series::list(&store).map_err(err)?, session })
     })
     .await
 }
@@ -854,10 +973,11 @@ async fn today_overview(app: AppHandle, day: String) -> CmdResult<TodayOverview>
 #[tauri::command]
 async fn today_new_words(app: AppHandle, day: String) -> CmdResult<today::Session> {
     blocking(app, move |s| {
+        let lang = s.lang();
         let store = s.store();
         let mut session = today::session(&store, &day).map_err(err)?;
         let old = session.words.clone();
-        let mut fresh = today::practice_words(&store, "ja", 12).map_err(err)?;
+        let mut fresh = today::practice_words(&store, &lang, 12).map_err(err)?;
         fresh.retain(|p| !old.contains(p));
         fresh.truncate(6);
         session.words = fresh;
@@ -933,7 +1053,7 @@ struct ReviewOverview {
 async fn review_overview(app: AppHandle, day: String) -> CmdResult<ReviewOverview> {
     blocking(app, move |s| {
         let to_anki = s.review_to_anki();
-        let overview = review::overview(&s.store(), "ja", &day).map_err(err)?;
+        let overview = review::overview(&s.store(), &s.lang(), &day).map_err(err)?;
         Ok(ReviewOverview { overview, to_anki })
     })
     .await
@@ -946,7 +1066,7 @@ async fn review_round(app: AppHandle, mode: String, extra: bool) -> CmdResult<Ve
     blocking(app, move |s| {
         let tok = s.tokenizer().ok();
         let tok = tok.as_deref().map(|t| t as &dyn ankura_core::tokenize::Tokenizer);
-        review::round(&s.store(), tok, "ja", &mode, extra, REVIEW_ROUND).map_err(err)
+        review::round(&s.store(), tok, &s.lang(), &mode, extra, REVIEW_ROUND).map_err(err)
     })
     .await
 }
@@ -974,6 +1094,8 @@ async fn review_send(app: AppHandle) -> CmdResult<review::SendReport> {
 
 #[derive(Serialize)]
 struct SpeechSettings {
+    /// The language to speak ("ja", "it", "es").
+    lang: String,
     /// 'auto' (VOICEVOX when it runs, else the computer's voices), 'system' or 'voicevox'.
     engine: String,
     system_voice: String,
@@ -989,6 +1111,7 @@ struct SpeechSettings {
 async fn speech_settings(app: AppHandle) -> CmdResult<SpeechSettings> {
     blocking(app, |s| {
         Ok(SpeechSettings {
+            lang: s.lang(),
             engine: s.setting("tts_engine").filter(|v| !v.is_empty()).unwrap_or_else(|| "auto".into()),
             system_voice: s.setting("tts_system_voice").unwrap_or_default(),
             style: s.setting("tts_style").and_then(|v| v.parse().ok()),
@@ -1163,12 +1286,12 @@ async fn practice_delete(app: AppHandle, test_id: String) -> CmdResult<()> {
 /// Characters read in a paragraph that counted as read; `day` is the user's local date.
 #[tauri::command]
 async fn record_reading(app: AppHandle, day: String, chars: i64) -> CmdResult<()> {
-    blocking(app, move |s| s.store().record_reading("ja", &day, chars).map_err(err)).await
+    blocking(app, move |s| s.store().record_reading(&s.lang(), &day, chars).map_err(err)).await
 }
 
 #[tauri::command]
 async fn reading_stats(app: AppHandle, today: String) -> CmdResult<ankura_core::stats::Stats> {
-    blocking(app, move |s| ankura_core::stats::stats(&s.store(), "ja", &today).map_err(err)).await
+    blocking(app, move |s| ankura_core::stats::stats(&s.store(), &s.lang(), &today).map_err(err)).await
 }
 
 #[tauri::command]
@@ -1366,20 +1489,19 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            let store = Store::open(&data_dir.join("ankura.db"))?;
-            // Development and testing: preset dictionaries through the environment.
-            let sudachi = std::env::var("ANKURA_SUDACHI_DIC").ok().or(store.setting("sudachi_dic")?);
+            let store = Store::open(&db_file(&data_dir, "ja"))?;
+            let language = store.setting("language")?.unwrap_or_else(|| "ja".to_string());
             let state = AppState {
                 store: Mutex::new(store),
+                lang: RwLock::new("ja".to_string()),
                 stop_analysis: std::sync::atomic::AtomicBool::new(false),
                 stop_practice: std::sync::atomic::AtomicBool::new(false),
                 tokenizer: RwLock::new(None),
                 data_dir,
             };
-            if let Some(path) = sudachi {
-                if let Err(e) = state.load_tokenizer(std::path::Path::new(&path)) {
-                    eprintln!("Sudachi dictionary at {path} didn't load: {e}");
-                }
+            // The language used last; Japanese if its database can't be opened.
+            if language == "ja" || state.switch_language(&language).is_err() {
+                state.reload_tokenizer();
             }
             app.manage(state);
             Ok(())
@@ -1387,6 +1509,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_status,
             set_setting,
+            set_language,
+            download_wiktionary,
             set_sudachi_path,
             download_sudachi,
             import_dictionary,

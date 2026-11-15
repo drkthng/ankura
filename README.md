@@ -54,6 +54,9 @@ notes.
   question types, order and times, listening optional, a pass estimate, every answer explained,
   cards for missed words and a retry round. Questions are kept in a bank and reused, so later
   tests need fewer AI requests. → [Practice test](docs/guide/practice-test.md)
+- **Italian and Spanish too (new).** A chooser switches the whole app between Japanese, Italian
+  and Spanish, each with its own texts, Anki setup and words. Reading, written texts and Review
+  work; some AI help is still being adapted. → [Languages](docs/guide/languages.md)
 - **See your progress.** Characters read per day, reading streaks, and "stealth leeches": words
   Anki says you know, but you keep looking up. → [Stats](docs/guide/stats.md)
 

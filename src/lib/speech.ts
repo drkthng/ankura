@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 export type Engine = "auto" | "system" | "voicevox";
 
 export interface SpeechSettings {
+  /** The language to speak: ja, it, es. */
+  lang: string;
   engine: Engine;
   system_voice: string;
   style: number | null;
@@ -28,11 +30,20 @@ let finish: (() => void) | null = null;
 
 const synth = (): SpeechSynthesis | null => (typeof speechSynthesis === "undefined" ? null : speechSynthesis);
 
-/** The computer's Japanese voices (they load asynchronously in some webviews). */
+const LOCALE: Record<string, string> = { ja: "ja-JP", it: "it-IT", es: "es-ES" };
+
+/** Forgets the loaded settings (the language changed). */
+export function reset() {
+  stop();
+  settings = null;
+  speakers = null;
+}
+
+/** The computer's voices for the language being learned (they load asynchronously in some webviews). */
 export async function systemVoices(): Promise<SpeechSynthesisVoice[]> {
   const s = synth();
   if (!s) return [];
-  const ja = () => s.getVoices().filter((v) => v.lang.toLowerCase().replace("_", "-").startsWith("ja"));
+  const ja = () => s.getVoices().filter((v) => v.lang.toLowerCase().replace("_", "-").startsWith(settings?.lang ?? "ja"));
   if (s.getVoices().length) return ja();
   await new Promise<void>((done) => {
     const t = setTimeout(done, 1500);
@@ -53,7 +64,8 @@ export async function voicevoxSpeakers(): Promise<VoicevoxSpeaker[] | null> {
 /** Loads the settings and checks for VOICEVOX; call again after the settings change. */
 export async function load(): Promise<SpeechSettings> {
   settings = await invoke<SpeechSettings>("speech_settings");
-  speakers = settings.engine === "system" ? null : await voicevoxSpeakers();
+  // VOICEVOX speaks Japanese only.
+  speakers = settings.engine === "system" || settings.lang !== "ja" ? null : await voicevoxSpeakers();
   return settings;
 }
 
@@ -72,9 +84,9 @@ export async function current(): Promise<Voice> {
     const sp = speakers.find((x) => x.styles.some((st) => st.id === style)) ?? speakers[0];
     return { engine: "voicevox", label: `VOICEVOX:${sp.name}` };
   }
-  if (s.engine === "voicevox") return { engine: "none", label: "VOICEVOX isn't running" };
+  if (s.engine === "voicevox" && s.lang === "ja") return { engine: "none", label: "VOICEVOX isn't running" };
   const v = await pickSystemVoice();
-  return v ? { engine: "system", label: v.name } : { engine: "none", label: "no Japanese voice on this computer" };
+  return v ? { engine: "system", label: v.name } : { engine: "none", label: "no voice for this language on this computer" };
 }
 
 /** Who speaks a line of a listening question (ADR 0018). */
@@ -130,7 +142,7 @@ export async function say(text: string, role: Role = "narrator", textId: string 
   stop();
   const v = await current();
   // The readings Ankura shows (and the learner's corrections) instead of the voice's guesses.
-  if (settings?.readings) text = await invoke<string>("speech_text", { text, textId }).catch(() => text);
+  if (settings?.readings && settings.lang === "ja") text = await invoke<string>("speech_text", { text, textId }).catch(() => text);
   if (v.engine === "none") throw new Error(`Can't speak: ${v.label}. Choose a voice in Settings → Listening.`);
   if (v.engine === "voicevox") {
     const raw = await invoke<ArrayBuffer | Uint8Array | number[]>("voicevox_speak", { text, style: roleStyle(role), speed: speed() });
@@ -163,7 +175,7 @@ export async function say(text: string, role: Role = "narrator", textId: string 
   }
   const s = synth()!;
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "ja-JP";
+  u.lang = LOCALE[settings?.lang ?? "ja"] ?? "ja-JP";
   u.rate = speed();
   const { voice, pitch } = await roleVoice(role);
   if (voice) u.voice = voice;

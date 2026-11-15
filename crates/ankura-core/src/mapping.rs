@@ -286,7 +286,14 @@ pub fn suggest_mapping(
             let mut words = 0.0;
             for note in &notes {
                 let v = note.fields.get(f).map(String::as_str).unwrap_or("");
-                if has_kanji(&first(v)) && keys_for_field(tok, v, None)?.outcome == FieldOutcome::Word {
+                // Japanese: a word with kanji. Other languages: a word their dictionary knows
+                // (so the field with the translation isn't taken for the word).
+                let wordlike = if tok.lang() == "ja" {
+                    has_kanji(&first(v))
+                } else {
+                    tok.tokenize(&first(v))?.iter().any(|t| t.kind == TokenKind::Word && !t.pos.is_empty())
+                };
+                if wordlike && keys_for_field(tok, v, None)?.outcome == FieldOutcome::Word {
                     words += 1.0;
                 }
             }
@@ -298,7 +305,7 @@ pub fn suggest_mapping(
             Some((f, r)) => (
                 f.clone(),
                 TargetMode::Field,
-                format!("“{f}” holds a single word with kanji in {:.0}% of notes.", r * 100.0),
+                format!("“{f}” holds a single word{} in {:.0}% of notes.", if tok.lang() == "ja" { " with kanji" } else { "" }, r * 100.0),
             ),
             None => return Ok(None),
         }

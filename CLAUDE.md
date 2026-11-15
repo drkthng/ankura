@@ -8,7 +8,7 @@ to generate interest-tailored n+1 texts with a high share of known words.
 (cards, phrases, stats, kanji/RTK, furigana fixes, interests, level check, JLPT practice tests,
 kept and reused AI output, listening in the reader and in practice tests, Today with serial stories and questions, translation in context, simpler versions,
 Review rounds on Ankura's own schedule with answers sent to Anki;
-ADRs 0012-0022) built
+ADRs 0012-0022) built; Italian and Spanish started behind a language switch (ADR 0023: one database per language)
 and tested with fakes; the owner is trying them on their collection. **Start with `docs/NEXT-SESSION.md`** (state, owner, code
 map, cloud-session tips, next steps), then `docs/ROADMAP.md` and the ADRs in `docs/adr/`.
 `docs/HANDOFF.md` is the original phase-1 brief (vision, requirements); its tasks are done.
@@ -40,7 +40,8 @@ check, not as fact.
 - Stack: Tauri v2, Rust core, Svelte UI (`docs/adr/0003-app-stack.md`), pending spikes S1-S2 in
   `docs/architecture-options.md` §9 (S3 done: `spikes/s3-tokenizers/REPORT.md`).
 - v1 languages: Japanese, Italian, Spanish (ADR 0001). Japanese tokenizer: sudachi.rs +
-  SudachiDict core (ADR 0008).
+  SudachiDict core (ADR 0008). Italian and Spanish: `romance.rs` with the form table of the
+  Wiktionary dictionary (ADR 0023).
 - Layout: `crates/ankura-core` (engine, no UI or platform code), `src-tauri` (Tauri shell and
   commands), `src` (Svelte 5 UI), `tools/dev` (fake AnkiConnect, dev JMdict, e2e smoke test).
 - Build / test: `npm install`, `npm run tauri dev`, `npm run check`, `cargo test -p ankura-core`

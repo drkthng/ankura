@@ -79,6 +79,24 @@ notes.
 
 Also write one short, natural example sentence for each target word, with an English translation.";
 
+/// The instructions for Italian and Spanish (ADR 0023); `{LANG}` is the language's name.
+const SYSTEM_ROMANCE: &str = "You write short {LANG} reading texts for one adult learner, who reads them in an app with \
+a pop-up dictionary. The goal is comprehensible input: almost every word should be one the learner already knows, so \
+that the few target words can be learned from context.
+
+Write natural, engaging {LANG}: a short story, a scene, a diary entry, a letter or a short article, whatever suits \
+the topic. Use every target word at least once, in any form (conjugated or inflected is fine), in a context that makes \
+its meaning guessable. Apart from the target words, use words from the known-word list, plus basic grammar words \
+(articles, prepositions, pronouns, conjunctions, numbers) and the most common verbs. Avoid rare words, idioms and names \
+that need explaining. Write the text only: no translations, no notes.
+
+Also write one short, natural example sentence for each target word, with an English translation.";
+
+/// The instructions for writing a text in this language.
+pub fn system(lang: &str) -> String {
+    if lang == "ja" { SYSTEM.to_string() } else { SYSTEM_ROMANCE.replace("{LANG}", crate::language_name(lang)) }
+}
+
 /// An episode of a serial story also returns its summary and the story bible.
 fn schema_for(series: bool) -> Value {
     let mut s = base_schema();
@@ -180,15 +198,23 @@ pub(crate) fn check(store: &Store, tok: &dyn Tokenizer, text: &str, targets: &[(
     Ok(Check { coverage, missing, unknown: unknown.into_iter().collect() })
 }
 
-fn user_prompt(req: &GenerateRequest, known: &[String], fading: &[String], avoid: &[String]) -> String {
+fn user_prompt(lang: &str, req: &GenerateRequest, known: &[String], fading: &[String], avoid: &[String]) -> String {
     let mut p = String::new();
     p.push_str(&format!("Target words: {}\n", req.targets.join("、")));
     p.push_str(&format!(
         "Topic: {}\n",
         if req.topic.trim().is_empty() { "your choice, something an adult would enjoy reading" } else { req.topic.trim() }
     ));
-    p.push_str(&format!("Length: about {} Japanese characters.\n", req.length));
-    p.push_str(if req.polite { "Style: です/ます.\n" } else { "Style: plain form (だ/である).\n" });
+    if lang == "ja" {
+        p.push_str(&format!("Length: about {} Japanese characters.\n", req.length));
+        p.push_str(if req.polite { "Style: です/ます.\n" } else { "Style: plain form (だ/である).\n" });
+    } else {
+        // The length is asked for in characters of Japanese; a word here carries about as much as two.
+        p.push_str(&format!("Language: {}.\nLength: about {} words.\n", crate::language_name(lang), (req.length / 2).max(60)));
+        if req.polite {
+            p.push_str("Style: formal address where people speak to each other.\n");
+        }
+    }
     if !avoid.is_empty() {
         p.push_str(&format!("Topics the learner doesn't want: {}.\n", avoid.join(", ")));
     }
@@ -261,16 +287,17 @@ pub fn prepare(store: &Store, tok: &dyn Tokenizer, req: &GenerateRequest) -> Res
         }
     }
     let avoid = crate::interests::get(store)?.avoid;
-    let mut prompt = user_prompt(&req, &known, &fading, &avoid);
+    let mut prompt = user_prompt(&lang, &req, &known, &fading, &avoid);
     if let Some(c) = &series {
         prompt.push_str(&c.prompt);
     }
     if let Some(a) = &req.adapt {
         prompt.push_str(&format!(
             "\nThis text is a simpler version of a text the learner wants to read. Retell the original below in simpler \
-Japanese: keep its content, events, facts and order, and leave out only details that would need more unknown words. \
+{}: keep its content, events, facts and order, and leave out only details that would need more unknown words. \
 Use the target words in the meaning they have in the original. Don't add anything that isn't in it. Title: the \
 original's subject, simply.\nOriginal:\n{}\n",
+            crate::language_name(&lang),
             a.source.trim()
         ));
     }
@@ -343,7 +370,7 @@ pub fn generate_text(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, req: &Ge
     let mut prompt = prep.prompt.clone();
     while attempts < MAX_ATTEMPTS {
         attempts += 1;
-        let draft: Draft = serde_json::from_value(llm.json(SYSTEM, &prompt, &schema_for(prep.episode.is_some()))?)
+        let draft: Draft = serde_json::from_value(llm.json(&system(&prep.lang), &prompt, &schema_for(prep.episode.is_some()))?)
             .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
         let c = check_draft(store, tok, &prep, &draft)?;
         let good = c.good();
@@ -420,7 +447,7 @@ pub fn simplify_sentence(store: &Store, tok: &dyn Tokenizer, llm: &dyn Llm, sent
             simple: String,
             translation: String,
         }
-        let a: Answer = serde_json::from_value(llm.json(SIMPLIFY_SYSTEM, &prompt, &simplify_schema())?)
+        let a: Answer = serde_json::from_value(llm.json(&SIMPLIFY_SYSTEM.replace("Japanese", crate::language_name(tok.lang())), &prompt, &simplify_schema())?)
             .map_err(|e| Error::Llm(format!("the answer didn't match the expected shape: {e}")))?;
         let c = check(store, tok, &a.simple, &[])?;
         let good = c.coverage >= TARGET_COVERAGE;
@@ -451,7 +478,7 @@ const ANSWER_FORMAT: &str = "Answer with only a JSON object in this shape, with 
 
 /// The whole request to paste into a chat: instructions, the prompt, and the answer format.
 pub fn chat_prompt(prep: &Prepared) -> String {
-    format!("{SYSTEM}\n\n{}\n{ANSWER_FORMAT}", prep.prompt)
+    format!("{}\n\n{}\n{}", system(&prep.lang), prep.prompt, ANSWER_FORMAT.replace("Japanese", crate::language_name(&prep.lang)))
 }
 
 /// The follow-up to paste into the same chat when a draft isn't good enough.

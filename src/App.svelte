@@ -14,6 +14,8 @@
   import Guide from "./views/Guide.svelte";
   import Today from "./views/Today.svelte";
   import Review from "./views/Review.svelte";
+  import { app } from "./lib/lang.svelte";
+  import * as speech from "./lib/speech";
 
   type View = { name: "today" } | { name: "review" } | { name: "library" } | { name: "reader"; id: string; today?: boolean } | { name: "write" } | { name: "cards" } | { name: "stats" } | { name: "kanji" } | { name: "test" } | { name: "practice" } | { name: "guide" } | { name: "anki"; focus?: string } | { name: "settings" };
 
@@ -31,6 +33,8 @@
   async function refresh() {
     try {
       status = await api.status();
+      app.lang = status.lang;
+      app.name = status.languages.find((l) => l[0] === status!.lang)?.[1] ?? status.lang;
       statusError = "";
     } catch (e) {
       statusError = String(e);
@@ -38,6 +42,23 @@
   }
 
   onMount(refresh);
+
+  // The central switch (ADR 0023): every language has its own texts, Anki setup, words and stats.
+  let switching = $state(false);
+  async function switchLanguage(lang: string) {
+    if (!status || lang === status.lang) return;
+    switching = true;
+    try {
+      await api.setLanguage(lang);
+      speech.reset();
+      view = { name: "today" };
+      await refresh();
+    } catch (e) {
+      statusError = String(e);
+    } finally {
+      switching = false;
+    }
+  }
 
   const knownWords = $derived(
     status ? (status.knowledge.known ?? 0) + (status.knowledge.fading ?? 0) : 0,
@@ -50,6 +71,13 @@
       <span class="logo" aria-hidden="true">🌱</span>
       <span>Ankura</span>
     </div>
+    {#if status}
+      <select class="language" aria-label="Language to learn" value={status.lang} disabled={switching} onchange={(e) => switchLanguage(e.currentTarget.value)}>
+        {#each status.languages as l}
+          <option value={l[0]}>{l[1]}</option>
+        {/each}
+      </select>
+    {/if}
     <button class:active={view.name === "today" || (view.name === "reader" && view.today)} onclick={() => (view = { name: "today" })}>Today</button>
     <button class:active={view.name === "review"} onclick={() => (view = { name: "review" })}>Review</button>
     <button class:active={view.name === "library" || (view.name === "reader" && !view.today)} onclick={() => (view = { name: "library" })}>
@@ -58,9 +86,11 @@
     <button class:active={view.name === "write"} onclick={() => (view = { name: "write" })}>Write for me</button>
     <button class:active={view.name === "cards"} onclick={() => (view = { name: "cards" })}>Cards</button>
     <button class:active={view.name === "stats"} onclick={() => (view = { name: "stats" })}>Stats</button>
-    <button class:active={view.name === "kanji"} onclick={() => (view = { name: "kanji" })}>Kanji</button>
-    <button class:active={view.name === "test"} onclick={() => (view = { name: "test" })}>Level check</button>
-    <button class:active={view.name === "practice"} onclick={() => (view = { name: "practice" })}>Practice test</button>
+    {#if app.lang === "ja"}
+      <button class:active={view.name === "kanji"} onclick={() => (view = { name: "kanji" })}>Kanji</button>
+      <button class:active={view.name === "test"} onclick={() => (view = { name: "test" })}>Level check</button>
+      <button class:active={view.name === "practice"} onclick={() => (view = { name: "practice" })}>Practice test</button>
+    {/if}
     <button class:active={view.name === "anki"} onclick={() => (view = { name: "anki" })}>Anki</button>
     <button class:active={view.name === "guide"} onclick={() => (view = { name: "guide" })}>How to learn</button>
     <button class:active={view.name === "settings"} onclick={() => (view = { name: "settings" })}>Settings</button>
@@ -68,7 +98,7 @@
     {#if status}
       <div class="nav-stat" title="Words Anki says you know">
         <strong>{knownWords.toLocaleString()}</strong>
-        <span>known words</span>
+        <span>known {app.lang === "ja" ? "" : app.name + " "}words</span>
       </div>
     {/if}
   </nav>
@@ -77,7 +107,9 @@
     {#if statusError}
       <p class="error">{statusError}</p>
     {/if}
-    {#if view.name === "today"}
+    {#if switching}
+      <p class="muted switching">Switching language…</p>
+    {:else if view.name === "today"}
       <Today onopen={openFromToday} ongo={(name) => (view = { name })} />
     {:else if view.name === "review"}
       <Review ongo={(name) => (view = { name })} />
@@ -163,6 +195,12 @@
   }
   .spacer {
     flex: 1;
+  }
+  .language {
+    margin: 0 0.3rem 0.6rem;
+  }
+  .switching {
+    padding: 2rem;
   }
   .nav-stat {
     display: flex;

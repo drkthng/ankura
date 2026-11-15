@@ -670,7 +670,13 @@ pub fn round(store: &Store, tok: Option<&dyn Tokenizer>, lang: &str, mode: &str,
 // --- answers ---
 
 fn norm(s: &str) -> String {
-    to_hiragana(&s.nfkc().collect::<String>()).chars().filter(|c| !c.is_whitespace()).collect()
+    let s: String = to_hiragana(&s.nfkc().collect::<String>()).chars().filter(|c| !c.is_whitespace()).collect();
+    // Latin script (Italian, Spanish, romaji): capitals and accents don't count (Città = citta).
+    if s.chars().all(|c| (c as u32) < 0x250) {
+        s.as_str().nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect::<String>().to_lowercase()
+    } else {
+        s
+    }
 }
 
 /// Whether a typed answer is one of the accepted ones: kanji or kana (hiragana and katakana
@@ -1129,6 +1135,10 @@ mod tests {
         for no in ["", "わすれ", "wasure", "覚えた", "xyz"] {
             assert!(!matches(no, &accept), "{no}");
         }
+        // Italian and Spanish: capitals and accents don't count; a different word does.
+        let accept = vec!["città".to_string(), "dímelo".to_string()];
+        assert!(matches("Citta", &accept) && matches("città", &accept) && matches("dimelo", &accept));
+        assert!(!matches("citte", &accept));
     }
 
     #[test]

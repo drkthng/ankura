@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope: desktop app, Japanese only (ADR 0009). Each milestone ends with something the owner can
+Scope: desktop app; Japanese first (ADR 0009), Italian and Spanish started (ADR 0023). Each milestone ends with something the owner can
 use.
 
 ## M1: Read with your Anki knowledge
@@ -99,6 +99,19 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
       recalled word is answered "Good" on its due Anki card.
 - [ ] Review, later: words learned in Ankura shown as such in the reader's colours; typed answers
       for kanji; undo for an answer sent to Anki.
+
+## Italian and Spanish (ADR 0023)
+
+- [x] The language switch: one database per language, a chooser in the navigation, Japanese-only
+      screens hidden.
+- [x] Wiktionary dictionary download (meanings and word forms), tokenizer with dictionary forms,
+      elisions and attached pronouns.
+- [x] Reading, Anki mapping and sync, stats, Review, listening with system voices, written texts.
+- [ ] AI instructions per language for cards, questions, translation and sentence help, simpler
+      versions, interest suggestions.
+- [ ] Corrections for wrongly guessed words (sale, vino); phrases as one word.
+- [ ] First real use: the real dictionaries, a real deck, the real AI.
+- [ ] Level check and practice tests (CILS, DELE/SIELE).
 
 ## Next: owner's choice
 

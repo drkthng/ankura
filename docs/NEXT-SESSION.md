@@ -1,6 +1,7 @@
 # Handoff to the next session
 
-Updated 2026-11-15 (Review, ADR 0022; written on the owner's Windows machine, see §4a).
+Updated 2026-11-15 (Review, ADR 0022; Italian and Spanish started, ADR 0023; written on the
+owner's Windows machine, see §4a).
 Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 `docs/HANDOFF.md` is the original phase-1 brief; its research tasks are done.
 
@@ -23,6 +24,15 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   View `Review.svelte`, warm-up card on Today. **Not run end to end yet:** core tests ran in CI
   only, the e2e steps were added without running them (no Linux here), and nothing was tried
   against a real Anki.
+- **Italian and Spanish, first step** (ADR 0023, 2026-11-15, owner's request): a language
+  chooser in the navigation; one database per language (`ankura.db`, `ankura-it.db`,
+  `ankura-es.db`; `AppState::switch_language`, `db_file`, `GLOBAL_SETTINGS` in the shell);
+  Wiktionary dictionary download (`downloads::wiktionary`) whose form rows fill `word_forms`
+  (schema v15); `romance.rs` tokenizer; `generate::system(lang)`; UI state in
+  `src/lib/lang.svelte.ts`. **Only the core tests ran (CI).** Never run: the real dictionary
+  import (1.2 million rows), the tokenizer on real text, the app with a switched language.
+  Still worded for Japanese: the AI instructions in `cards.rs`, `quiz.rs`, `explain.rs`,
+  `adapt.rs`, `interests.rs` (and `series.rs` context).
 - **Help while reading and simpler versions** (ADR 0020-0021, 2026-10-31): Translate this
   sentence (in context) and English | 日本語 meanings in the pop-up (`explain.rs`); simpler
   versions of texts under 95% (`adapt.rs`: plan, write, status, missing words;
@@ -103,6 +113,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `voicevox.rs` | VOICEVOX client (ADR 0017): `speakers`, `synthesize` (speed via `speedScale`), `speak` (disk cache by text+speed per style) |
 | `stats.rs` | Reading stats: `reading_days` (chars per local day, logged when a paragraph counts as read), streaks, stealth leeches, most looked up |
 | `knowledge.rs` | Card facts → word state (unknown/new/learning/fading/known), strongest card wins |
+| `romance.rs` | Italian and Spanish tokenizer (ADR 0023): `segment` (words, elisions), `resolve` (dictionary form from `dict_terms` and `word_forms`, order of preference in the ADR), `clitic_verb`; reads the language's database through its own connection |
 | `fsrs.rs` | FSRS-5 memory model for Ankura's own schedule (default weights, three grades, same-day rule) |
 | `review.rs` | Review (ADR 0022): what is due (`word_queue`, `kanji_queue`), `round` (items; `find_sentence`/`blank` make the gap, `choices`), `matches` (typed answers, romaji via `kana::romaji_to_hiragana`), `answer` (result, points, schedule, log), `queue_anki`/`send_anki` (answers for Anki cards), `overview`, `replace_cards` (called by sync: the one word a card tests and its sentence) |
 | `store.rs` | SQLite, schema v4 with migrations from v1; texts (+`extra` JSON), mappings (+`target_mode`), knowledge (+`display`), overrides, events (+`display`, device ID), dictionary tables; `study_words`, `known_lemmas` |
@@ -121,7 +132,7 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
 | `.github/workflows/build.yml` | Check + tests, then installers for Windows/macOS/Linux as artifacts |
 | `spikes/s3-tokenizers/` | Tokenizer comparison (gold set, report) behind ADR 0008 |
 
-Decisions: ADRs 0001-0022 in `docs/adr/`. Most relevant now: 0022 (Review, answers sent to Anki), 0021 (simpler versions), 0020 (translation, 日本語 meanings), 0019 (Today, series, questions), 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
+Decisions: ADRs 0001-0023 in `docs/adr/`. Most relevant now: 0023 (Italian, Spanish, the language switch), 0022 (Review, answers sent to Anki), 0021 (simpler versions), 0020 (translation, 日本語 meanings), 0019 (Today, series, questions), 0018 (listening questions), 0017 (listening), 0016 (keep and reuse AI output), 0015 (practice tests), 0014 (level check), 0012 (Anki cards, phrases), 0011 (AI without API costs; Max plan API credits), 0008 (Sudachi), 0009 (desktop +
 Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort medium).
 
 ## 4. Working in a cloud session (what tripped this session up)
@@ -175,6 +186,13 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 - Bash heredocs with backticks or brackets break in the tool's shell; write scripts to a file.
 
 ## 5. Next steps, in order
+
+00. **Italian and Spanish, first real use** (ADR 0023): on a machine that can build, switch to
+   Italian, download the dictionary (watch the import time and the database size), paste a text
+   and check the dictionary forms, names and grammar words; map a deck and sync; write a text.
+   Then adapt the remaining AI instructions (list in §1), add corrections for wrongly guessed
+   words, and extend the e2e (the fake AnkiConnect and fake LLM are Japanese only). Ask the
+   owner which of the two languages they use first and how their decks for it look.
 
 0. **Review, first real use** (ADR 0022): run the e2e once on Linux (the Review steps at the end
    of `e2e_smoke.py` have never run). With the owner: does their AnkiConnect have `answerCards`

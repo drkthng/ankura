@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { app } from "../lib/lang.svelte";
   import { onMount } from "svelte";
   import { api, stateLabel, type ReaderToken, type Simplified, type WordInfo, type WordState } from "../lib/api";
   import KanjiPanel from "./KanjiPanel.svelte";
@@ -42,7 +43,7 @@
       return "en";
     }
   };
-  let lang = $state<"en" | "ja">(pref());
+  let lang = $state<"en" | "ja">(app.lang === "ja" ? pref() : "en");
   let ja = $state<{ text: string; tokens: ReaderToken[]; coverage: number } | null>(null);
   let jaBusy = $state(false);
   let jaError = $state("");
@@ -234,7 +235,7 @@
 
   {#if error}<p class="error">{error}</p>{/if}
 
-  <div class="langs" role="tablist" aria-label="Meaning in">
+  <div class="langs" role="tablist" aria-label="Meaning in" hidden={app.lang !== "ja"}>
     <button role="tab" class:on={lang === "en"} aria-selected={lang === "en"} onclick={() => setLang("en")}>English</button>
     <button role="tab" class:on={lang === "ja"} aria-selected={lang === "ja"} onclick={() => setLang("ja")}>日本語</button>
   </div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
+  import { app } from "../lib/lang.svelte";
   import { api, type LibraryItem, type Status, type TextMeta } from "../lib/api";
 
   let { status, onopen, ongo }: {
@@ -105,8 +106,12 @@
   const setup = $derived(
     status
       ? [
-          { done: status.tokenizer_ready, label: "Japanese tokenizer dictionary (SudachiDict)", go: "settings" as const },
-          { done: status.dictionaries.length > 0, label: "Word dictionary (JMdict) for look-ups", go: "settings" as const },
+          ...(status.lang === "ja"
+            ? [
+                { done: status.tokenizer_ready, label: "Japanese tokenizer dictionary (SudachiDict)", go: "settings" as const },
+                { done: status.dictionaries.length > 0, label: "Word dictionary (JMdict) for look-ups", go: "settings" as const },
+              ]
+            : [{ done: status.tokenizer_ready, label: `${app.name} dictionary (meanings and word forms)`, go: "settings" as const }]),
           { done: status.mappings > 0, label: "Connect Anki and choose which fields hold your words", go: "anki" as const },
         ]
       : [],
@@ -134,7 +139,7 @@
     <h2>New text</h2>
     <input class="title" placeholder="Title (optional)" bind:value={title} />
     <textarea
-      placeholder="Paste a Japanese text here: an article, a chapter, song lyrics…"
+      placeholder="Paste a {app.name} text here: an article, a chapter, song lyrics…"
       bind:value={body}
       rows="7"
       onkeydown={(e) => {

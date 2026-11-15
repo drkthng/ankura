@@ -24,6 +24,7 @@ pub mod proficiency;
 pub mod quiz;
 pub mod reader;
 pub mod review;
+pub mod romance;
 pub mod series;
 pub mod stats;
 pub mod store;
@@ -32,6 +33,14 @@ pub mod tokenize;
 pub mod voicevox;
 
 use serde::{Deserialize, Serialize};
+
+/// The languages Ankura can be switched to (ADR 0001, ADR 0023): code and English name.
+pub const LANGUAGES: [(&str, &str); 3] = [("ja", "Japanese"), ("it", "Italian"), ("es", "Spanish")];
+
+/// The English name of a language code ("it" → "Italian"); the code itself if unknown.
+pub fn language_name(code: &str) -> &str {
+    LANGUAGES.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or(code)
+}
 
 /// Identifies a word across Anki, the reader and telemetry: language, normalized lemma and the
 /// lemma's reading in hiragana.

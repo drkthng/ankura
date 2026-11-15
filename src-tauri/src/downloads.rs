@@ -12,6 +12,9 @@ use tauri::{AppHandle, Emitter};
 const SUDACHI_PYPI: &str = "https://pypi.org/pypi/SudachiDict-core/json";
 const JMDICT_URL: &str = "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMdict_english.zip";
 
+/// Wiktionary dictionaries in Yomitan format (yomidevs/wiktionary-to-yomitan; data CC BY-SA 4.0).
+const WIKTIONARY_URL: &str = "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict";
+
 fn agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
     ureq::Agent::config_builder().tls_config(tls).build().new_agent()
@@ -88,5 +91,18 @@ pub fn jmdict(app: &AppHandle, dir: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let dest = dir.join("JMdict_english.zip");
     download(app, "JMdict", JMDICT_URL, &dest)?;
+    Ok(dest)
+}
+
+/// Downloads the Wiktionary dictionary for `lang` ("it", "es") with English meanings and returns
+/// the zip path.
+pub fn wiktionary(app: &AppHandle, dir: &Path, lang: &str) -> Result<PathBuf, String> {
+    if !matches!(lang, "it" | "es") {
+        return Err(format!("there is no Wiktionary download for the language {lang}"));
+    }
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let name = format!("wty-{lang}-en.zip");
+    let dest = dir.join(&name);
+    download(app, "Wiktionary dictionary", &format!("{WIKTIONARY_URL}/{lang}/en/{name}"), &dest)?;
     Ok(dest)
 }

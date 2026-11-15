@@ -14,6 +14,7 @@
     type ReviewSendReport,
   } from "../lib/api";
   import * as speech from "../lib/speech";
+  import { app } from "../lib/lang.svelte";
 
   let { ongo }: { ongo: (view: "anki" | "guide" | "cards") => void } = $props();
 
@@ -299,7 +300,7 @@
       <div class="tiles">
         <div class="tile">
           <span class="label">Due now</span><span class="value">{ov.due_words}</span>
-          <span class="sub">{ov.due_fading} fading in Anki · {ov.due_kanji} kanji</span>
+          <span class="sub">{ov.due_fading} fading in Anki{app.lang === "ja" ? ` · ${ov.due_kanji} kanji` : ""}</span>
         </div>
         <div class="tile">
           <span class="label">Today</span><span class="value">{ov.today_right} / {ov.goal}</span>
@@ -319,7 +320,7 @@
       {#if note}<p class="note">{note}</p>{/if}
 
       <div class="modes">
-        {#each MODES as m}
+        {#each MODES.filter((m) => m.mode !== "kanji" || app.lang === "ja") as m}
           {@const due = m.mode === "kanji" ? ov.due_kanji : ov.due_words}
           <section class="card mode" class:main={m.mode === "gap"}>
             <h2>{m.title}</h2>
@@ -449,16 +450,19 @@
                 class="answer"
                 bind:this={input}
                 bind:value={typed}
-                placeholder="the missing word: kanji, kana or romaji"
+                placeholder={app.lang === "ja" ? "the missing word: kanji, kana or romaji" : "the missing word"}
                 autocomplete="off"
                 autocapitalize="off"
                 spellcheck="false"
               />
               <button class="primary" disabled={busy || !typed.trim()} onclick={check}>Check</button>
             </div>
-            {#if hinted}<p class="muted small hint">Starts with <strong class="ja">{[...item.answer_reading][0]}</strong>, {[...item.answer_reading].length} kana.</p>{/if}
+            {#if hinted}
+              {@const spelled = [...(item.answer_reading || item.answer)]}
+              <p class="muted small hint">Starts with <strong class="ja">{spelled[0]}</strong>, {spelled.length} {item.answer_reading ? "kana" : "letters"}.</p>
+            {/if}
             <div class="row helpers">
-              {#if !hinted && item.answer_reading}<button class="ghost" onclick={() => (hinted = true)}>Hint</button>{/if}
+              {#if !hinted}<button class="ghost" onclick={() => (hinted = true)}>Hint</button>{/if}
               {#if item.options.length}<button class="ghost" onclick={() => (showChoices = true)}>Show choices</button>{/if}
               <button class="ghost" onclick={giveUp}>I don't know</button>
             </div>

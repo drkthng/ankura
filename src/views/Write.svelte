@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { app } from "../lib/lang.svelte";
   import { onMount } from "svelte";
   import { api, type AiMode, type AiSettings, type ChatOutcome, type GenerateRequest, type Interests, type StudyWord } from "../lib/api";
 
@@ -306,15 +307,15 @@
     <div class="row opts">
       <label>Length
         <select bind:value={length}>
-          <option value={300}>Short (~300 characters)</option>
-          <option value={500}>Medium (~500)</option>
-          <option value={900}>Long (~900)</option>
+          <option value={300}>Short{app.lang === "ja" ? " (~300 characters)" : " (~150 words)"}</option>
+          <option value={500}>Medium{app.lang === "ja" ? " (~500)" : " (~250)"}</option>
+          <option value={900}>Long{app.lang === "ja" ? " (~900)" : " (~450)"}</option>
         </select>
       </label>
       <label>Style
         <select bind:value={polite}>
-          <option value={false}>Plain (だ・である)</option>
-          <option value={true}>Polite (です・ます)</option>
+          <option value={false}>{app.lang === "ja" ? "Plain (だ・である)" : "Informal"}</option>
+          <option value={true}>{app.lang === "ja" ? "Polite (です・ます)" : "Formal address"}</option>
         </select>
       </label>
     </div>

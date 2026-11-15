@@ -42,6 +42,7 @@
     "practice-test",
     "stats",
     "anki",
+    "languages",
     "ai",
     "learning-evidence",
     "feature-ideas",

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { app } from "../lib/lang.svelte";
   import { onMount } from "svelte";
   import { api, type KanjiMapping, type MappingPreview, type NoteType, type Status, type SyncReport, type TargetMode } from "../lib/api";
 
@@ -176,7 +177,7 @@
     try {
       const s = await api.ankiSuggest(nt.id, nt.name, nt.fields);
       if (!s) {
-        d.reason = "Couldn't find a field with Japanese words in this note type. Pick one yourself, or leave it unmapped.";
+        d.reason = "Couldn't find a field with words of this language in this note type. Pick one yourself, or leave it unmapped.";
         return;
       }
       d.target = s.mapping.target_field;
@@ -254,7 +255,7 @@
     <section class="card">
       <h2>2. Which field holds the word?</h2>
       <p class="muted">
-        For each note type with Japanese words, tell Ankura where the word is: a field of its own, or the bold or
+        For each note type with {app.name} words, tell Ankura where the word is: a field of its own, or the bold or
         italic part of a sentence field. Add the reading field if there is one (Ankura takes its first line).
         <strong>Suggest fields</strong> looks at your notes and proposes this; Preview shows the result on a sample.
         Nothing is saved until you click Save. Note types you leave unmapped are skipped.

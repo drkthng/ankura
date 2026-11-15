@@ -78,7 +78,30 @@ fn gloss_to_senses(glossary: &Value) -> Vec<String> {
     senses
 }
 
-/// Imports a Yomitan dictionary zip. Replaces an earlier import with the same title.
+/// The words a form row points to, with what form it is: Wiktionary dictionaries in Yomitan
+/// format (wiktionary-to-yomitan) tag such rows `non-lemma` and give `[lemma, [inflections]]`
+/// pairs instead of a meaning (case → casa, plural).
+fn form_targets(glossary: &Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for item in glossary.as_array().into_iter().flatten() {
+        let Some(pair) = item.as_array() else { continue };
+        let Some(lemma) = pair.first().and_then(Value::as_str) else { continue };
+        let lemma = crate::romance::clean_lemma(lemma);
+        if lemma.is_empty() {
+            continue;
+        }
+        let info = pair
+            .get(1)
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; "))
+            .unwrap_or_default();
+        out.push((lemma, info));
+    }
+    out
+}
+
+/// Imports a Yomitan dictionary zip. Replaces an earlier import with the same title. Rows for
+/// inflected forms go into the form table (ADR 0023), not into the entries.
 pub fn import_yomitan_zip(store: &mut Store, path: &Path) -> Result<DictionaryInfo> {
     let mut zip = zip::ZipArchive::new(File::open(path)?).map_err(|e| Error::Dictionary(e.to_string()))?;
     let read = |zip: &mut zip::ZipArchive<File>, name: &str| -> Result<String> {
@@ -113,6 +136,7 @@ pub fn import_yomitan_zip(store: &mut Store, path: &Path) -> Result<DictionaryIn
     let dict_id = tx.last_insert_rowid();
     let mut terms = 0i64;
     {
+        let mut ins_form = tx.prepare("INSERT INTO word_forms (dict_id, form, lemma, info) VALUES (?1, ?2, ?3, ?4)")?;
         let mut ins = tx.prepare(
             "INSERT INTO dict_terms (dict_id, expression, reading, tags, score, glossary, sequence, term_tags)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -127,6 +151,14 @@ pub fn import_yomitan_zip(store: &mut Store, path: &Path) -> Result<DictionaryIn
                 }
                 let reading = r.get(1).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(expression);
                 let tags = r.get(2).and_then(Value::as_str).unwrap_or("");
+                if tags.split_whitespace().any(|t| t == "non-lemma") {
+                    for (lemma, info) in form_targets(r.get(5).unwrap_or(&Value::Null)) {
+                        if lemma != expression {
+                            ins_form.execute(params![dict_id, expression, lemma, info])?;
+                        }
+                    }
+                    continue;
+                }
                 let score = r.get(4).and_then(Value::as_i64).unwrap_or(0);
                 let senses = gloss_to_senses(r.get(5).unwrap_or(&Value::Null));
                 if senses.is_empty() {

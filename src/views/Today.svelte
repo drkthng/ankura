@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import { api, type Pick, type ReviewOverview, type SeriesInfo, type TodayOverview } from "../lib/api";
   import Quiz from "../components/Quiz.svelte";
+  import { app } from "../lib/lang.svelte";
 
   let { onopen, ongo }: { onopen: (id: string) => void; ongo: (view: "cards" | "guide" | "review") => void } = $props();
 
@@ -66,7 +67,7 @@
   function add() {
     const w = adding.trim();
     if (!session || !w) return;
-    session.words = [...session.words, { key: { lang: "ja", lemma: w, reading: "" }, display: w, reason: "added" }];
+    session.words = [...session.words, { key: { lang: app.lang, lemma: w, reading: "" }, display: w, reason: "added" }];
     adding = "";
     saveSession();
   }
@@ -202,11 +203,11 @@
           </div>
           <div class="row">
             <select bind:value={length}>
-              <option value={300}>short (~300 characters)</option>
-              <option value={500}>medium (~500)</option>
-              <option value={900}>long (~900)</option>
+              <option value={300}>short{app.lang === "ja" ? " (~300 characters)" : " (~150 words)"}</option>
+              <option value={500}>medium{app.lang === "ja" ? " (~500)" : " (~250)"}</option>
+              <option value={900}>long{app.lang === "ja" ? " (~900)" : " (~450)"}</option>
             </select>
-            <label><input type="checkbox" bind:checked={polite} /> です・ます</label>
+            <label><input type="checkbox" bind:checked={polite} /> {app.lang === "ja" ? "です・ます" : "Formal address"}</label>
           </div>
         {/if}
         <button class="primary big" onclick={write} disabled={writing || !session.words.length}>

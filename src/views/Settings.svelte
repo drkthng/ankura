@@ -4,11 +4,12 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import * as speech from "../lib/speech";
+  import { app } from "../lib/lang.svelte";
   import { api, type AiMode, type AiSettings, type CardOptions, type MemoryStats, type Provider, type Status } from "../lib/api";
 
   let { status, onchange }: { status: Status | null; onchange: () => void } = $props();
 
-  let busy = $state<"" | "sudachi" | "jmdict" | "import">("");
+  let busy = $state<"" | "sudachi" | "jmdict" | "wiktionary" | "import">("");
   let error = $state("");
   let progress = $state<{ what: string; done: number; total: number | null } | null>(null);
 
@@ -190,6 +191,7 @@
     </p>
   {/if}
 
+  {#if app.lang === "ja"}
   <section class="card">
     <h2>Japanese tokenizer</h2>
     <p class="muted">
@@ -206,10 +208,20 @@
       <button onclick={chooseSudachi} disabled={busy !== ""}>Use a system.dic I have…</button>
     </div>
   </section>
+  {/if}
 
   <section class="card">
     <h2>Dictionaries</h2>
-    <p class="muted">Word look-ups use Yomitan-format dictionaries. JMdict (English) is the standard one.</p>
+    {#if app.lang === "ja"}
+      <p class="muted">Word look-ups use Yomitan-format dictionaries. JMdict (English) is the standard one.</p>
+    {:else}
+      <p class="muted">
+        For {app.name}, one dictionary does two jobs: it gives the meanings for look-ups, and it lists the forms of every
+        word (<em>case</em> → <em>casa</em>), which is how Ankura recognises the words in a text. It is made from
+        Wiktionary (CC BY-SA), about 20 MB to download; importing it takes a minute or two.
+      </p>
+      {#if status?.tokenizer_ready}<p class="ok">✓ Ready</p>{/if}
+    {/if}
     {#if status?.dictionaries.length}
       <ul>
         {#each status.dictionaries as d}
@@ -218,9 +230,15 @@
       </ul>
     {/if}
     <div class="row">
-      <button class="primary" onclick={() => run("jmdict", api.downloadJmdict)} disabled={busy !== ""}>
-        {busy === "jmdict" ? "Downloading…" : "Download JMdict"}
-      </button>
+      {#if app.lang === "ja"}
+        <button class="primary" onclick={() => run("jmdict", api.downloadJmdict)} disabled={busy !== ""}>
+          {busy === "jmdict" ? "Downloading…" : "Download JMdict"}
+        </button>
+      {:else}
+        <button class="primary" onclick={() => run("wiktionary", api.downloadWiktionary)} disabled={busy !== ""}>
+          {busy === "wiktionary" ? "Downloading and importing…" : status?.tokenizer_ready ? "Download again" : `Download the ${app.name} dictionary`}
+        </button>
+      {/if}
       <button onclick={importDict} disabled={busy !== ""}>{busy === "import" ? "Importing…" : "Import a Yomitan dictionary…"}</button>
     </div>
   </section>
@@ -305,8 +323,8 @@
   <section class="card">
     <h2>Listening</h2>
     <p class="muted small">
-      The reader can read texts aloud. Ankura uses your computer's Japanese voices, or VOICEVOX: a free program with much
-      more natural Japanese voices that you start next to Ankura.
+      The reader can read texts aloud with your computer's {app.name} voices. For Japanese there is also VOICEVOX: a free
+      program with much more natural voices that you start next to Ankura.
     </p>
     {#if sp}
       <div class="row">
@@ -325,7 +343,7 @@
             </select>
           {:else}
             <span class="muted small">
-              No Japanese voice found. On Windows: Settings → Time &amp; language → Speech → Add voices → Japanese. On a Mac:
+              No {app.name} voice found. On Windows: Settings → Time &amp; language → Speech → Add voices → {app.name}. On a Mac:
               System Settings → Accessibility → Spoken Content → System voice → Manage voices.
             </span>
           {/if}
