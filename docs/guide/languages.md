@@ -3,8 +3,7 @@
 [← README](../../README.md)
 
 Ankura can be switched between **Japanese**, **Italian** and **Spanish** with the chooser at the
-top of the navigation. Italian and Spanish are new: the basics work, some AI features are still
-worded for Japanese (see below).
+top of the navigation. Italian and Spanish are new: the basics are there, but untested on real use (see below).
 
 ## Each language is separate
 
@@ -39,8 +38,8 @@ another. Your AI setup and the Anki connection are shared.
 
 - **Kanji, Level check and Practice test** are for Japanese only and are hidden.
 - **Cards from the AI, questions after a text, translating a sentence, simpler versions:** they
-  run, but their instructions still say the text is Japanese, so results may be off. Being
-  adapted next.
+  work, but were tuned for Japanese and haven't been checked in Italian and Spanish yet, so
+  expect rough edges.
 - **Words with two meanings by form** are guessed without the sentence: *sale* can be "salt" or
   "goes up", Spanish *vino* "wine" or "came". If you have an Anki card for one of them, Ankura
   picks that one.

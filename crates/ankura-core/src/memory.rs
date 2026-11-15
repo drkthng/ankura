@@ -56,11 +56,19 @@ CREATE TABLE ai_reuse (kind TEXT PRIMARY KEY, n INTEGER NOT NULL);
 pub struct Recorded<L: Llm> {
     inner: L,
     store: Mutex<Store>,
+    /// The language being learned; instructions written for Japanese are adapted to it.
+    lang: String,
 }
 
 impl<L: Llm> Recorded<L> {
     pub fn new(inner: L, store: Store) -> Self {
-        Recorded { inner, store: Mutex::new(store) }
+        Recorded { inner, store: Mutex::new(store), lang: "ja".to_string() }
+    }
+
+    /// For a language other than Japanese (ADR 0023; `llm::for_language`).
+    pub fn for_language(mut self, lang: &str) -> Self {
+        self.lang = lang.to_string();
+        self
     }
 }
 
@@ -71,6 +79,8 @@ fn schema_kind(schema: &Value) -> String {
 impl<L: Llm> Llm for Recorded<L> {
     fn json(&self, system: &str, user: &str, schema: &Value) -> Result<Value> {
         let start = Instant::now();
+        let system = crate::llm::for_language(system, &self.lang);
+        let system = system.as_str();
         let r = self.inner.json(system, user, schema);
         let (response, error) = match &r {
             Ok(v) => (Some(v.to_string()), None),

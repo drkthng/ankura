@@ -31,8 +31,9 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   (schema v15); `romance.rs` tokenizer; `generate::system(lang)`; UI state in
   `src/lib/lang.svelte.ts`. **Only the core tests ran (CI).** Never run: the real dictionary
   import (1.2 million rows), the tokenizer on real text, the app with a switched language.
-  Still worded for Japanese: the AI instructions in `cards.rs`, `quiz.rs`, `explain.rs`,
-  `adapt.rs`, `interests.rs` (and `series.rs` context).
+  The AI instructions in `cards.rs`, `quiz.rs`, `explain.rs`, `interests.rs` are still written
+  for Japanese and adapted by one general note (`llm::for_language`, applied in
+  `memory::Recorded`); their results in Italian and Spanish haven't been looked at.
 - **Help while reading and simpler versions** (ADR 0020-0021, 2026-10-31): Translate this
   sentence (in context) and English | 日本語 meanings in the pop-up (`explain.rs`); simpler
   versions of texts under 95% (`adapt.rs`: plan, write, status, missing words;
@@ -190,7 +191,7 @@ Japanese first), 0010 (generated texts, default model `claude-opus-5-5`, effort 
 00. **Italian and Spanish, first real use** (ADR 0023): on a machine that can build, switch to
    Italian, download the dictionary (watch the import time and the database size), paste a text
    and check the dictionary forms, names and grammar words; map a deck and sync; write a text.
-   Then adapt the remaining AI instructions (list in §1), add corrections for wrongly guessed
+   Then check the AI features' results (§1) and write instructions per language where they are poor, add corrections for wrongly guessed
    words, and extend the e2e (the fake AnkiConnect and fake LLM are Japanese only). Ask the
    owner which of the two languages they use first and how their decks for it look.
 

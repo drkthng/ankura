@@ -107,8 +107,9 @@ Owner's order (2026-10-27): stats, kanji, furigana, interest profile, then the p
 - [x] Wiktionary dictionary download (meanings and word forms), tokenizer with dictionary forms,
       elisions and attached pronouns.
 - [x] Reading, Anki mapping and sync, stats, Review, listening with system voices, written texts.
-- [ ] AI instructions per language for cards, questions, translation and sentence help, simpler
-      versions, interest suggestions.
+- [x] The other AI features' instructions adapted by one general note (`llm::for_language`).
+- [ ] Instructions written per language where that note isn't enough (cards, questions,
+      translation, simpler versions).
 - [ ] Corrections for wrongly guessed words (sale, vino); phrases as one word.
 - [ ] First real use: the real dictionaries, a real deck, the real AI.
 - [ ] Level check and practice tests (CILS, DELE/SIELE).

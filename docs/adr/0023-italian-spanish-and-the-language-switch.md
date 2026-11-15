@@ -53,6 +53,12 @@ Research on 2026-11-15 (files fetched and inspected, not from memory):
    empty for these languages.
 5. **Writing texts:** Write for me, Today's text and serial stories get instructions for the
    language (`generate::system`), with the length asked for in words.
+6. **The other AI features** (cards, questions after a text, translation, simpler sentences and
+   versions, interest suggestions) keep their instructions written for Japanese. For another
+   language they are adapted in one place, where every request passes (`llm::for_language`, in
+   `memory::Recorded`): the language's name replaces "Japanese", and a note says that what is
+   specific to Japanese doesn't apply. Good enough to start; instructions written for each
+   language can replace this where results are poor.
 
 ## Consequences and known gaps
 
@@ -60,9 +66,9 @@ Research on 2026-11-15 (files fetched and inspected, not from memory):
   coverage, Anki field mapping and sync, stats, Review (fill the gap, listen and fill, speed
   match; typed answers ignore capitals and accents), listening with the computer's voices, and
   written texts.
-- **Not adapted yet (still worded for Japanese):** the AI instructions for cards, questions after
-  a text, translation and help with a sentence, simpler versions, and interest suggestions. They
-  run, but tell the model the text is Japanese. Next step.
+- **Adapted only by the general note of point 6:** the AI instructions for cards, questions after
+  a text, translation and help with a sentence, simpler versions, and interest suggestions.
+  Their results in Italian and Spanish haven't been looked at.
 - **Ambiguous forms are guessed** without looking at the sentence (sale: salt or "goes up";
   Spanish como, para, vino). A wrong guess shows the wrong meaning and counts against the wrong
   word. A correction by the learner, like the reading fixes for Japanese, is the planned answer.

@@ -44,6 +44,22 @@ pub trait Llm: Send + Sync {
     fn json(&self, system: &str, user: &str, schema: &Value) -> Result<Value>;
 }
 
+/// Instructions written for Japanese, turned into instructions for another language (ADR 0023):
+/// the language's name instead of "Japanese", and a note that what is specific to Japanese
+/// doesn't apply. Instructions that don't mention Japanese, and Japanese itself, stay as they are.
+pub fn for_language(system: &str, lang: &str) -> String {
+    if lang == "ja" || !system.contains("Japanese") {
+        return system.to_string();
+    }
+    let name = crate::language_name(lang);
+    format!(
+        "{}\n\nThe language here is {name}, not Japanese. Whatever above is specific to Japanese doesn't apply: \
+furigana, romaji, readings, particles, the Japanese example words and patterns, polite and plain style. Where it says \
+to write in the language, write {name}. Where a length is given in characters, allow three times as many.",
+        system.replace("Japanese", name)
+    )
+}
+
 pub struct HttpLlm {
     config: LlmConfig,
     api_key: String,
@@ -190,6 +206,15 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn instructions_are_adapted_to_the_language() {
+        let ja = "You help an adult learner read Japanese. No furigana.";
+        assert_eq!(super::for_language(ja, "ja"), ja);
+        let it = super::for_language(ja, "it");
+        assert!(it.starts_with("You help an adult learner read Italian.") && it.contains("is Italian, not Japanese"), "{it}");
+        assert_eq!(super::for_language("Answer the questions.", "es"), "Answer the questions.");
+    }
+
     use super::fake::*;
     use super::*;
 

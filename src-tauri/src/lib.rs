@@ -149,7 +149,7 @@ impl AppState {
         if let Ok(url) = std::env::var("ANKURA_LLM_URL") {
             llm = llm.with_url(&url); // development and tests: a stand-in provider
         }
-        Ok(ankura_core::memory::Recorded::new(llm, self.own_store()?))
+        Ok(ankura_core::memory::Recorded::new(llm, self.own_store()?).for_language(&self.lang()))
     }
 
     /// Its own connection, so the app's shared one isn't locked while the AI writes (WAL mode lets
