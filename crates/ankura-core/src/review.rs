@@ -89,6 +89,12 @@ const HELPED_MAX_DAYS: f64 = 3.0;
 const MISSED_MAX_DAYS: f64 = 1.0;
 /// Good, as Anki's answer buttons count (1 Again … 4 Easy).
 const EASE_GOOD: i64 = 3;
+/// The longest sentence shown around a gap, as a width: kana and kanji count 2, other characters
+/// 1 (about 30 Japanese characters, or a dozen Italian words). Longer ones are cut to the part
+/// around the word (`window`).
+const MAX_WIDTH: usize = 60;
+/// A cut sentence keeps at least this much around the word.
+const MIN_CONTEXT: usize = 12;
 
 /// Not marked known or ignored by the learner.
 const NOT_OVERRIDDEN: &str = "NOT EXISTS (SELECT 1 FROM word_overrides o WHERE o.lang = x.lang AND o.lemma = x.lemma
@@ -304,6 +310,11 @@ pub struct Item {
     /// The word as it stands in the sentence (the dictionary form when there is no sentence).
     pub answer: String,
     pub answer_reading: String,
+    /// The whole sentence. `before` and `after` are only the part around the word when it is long.
+    pub sentence: String,
+    /// The sentence goes on before `before` / after `after`.
+    pub cut_before: bool,
+    pub cut_after: bool,
     /// Where the sentence is from: a text's title, or "your Anki card".
     pub from: String,
     /// Typed answers that count as right.
@@ -388,7 +399,88 @@ struct Found {
     after_tokens: Vec<ReaderToken>,
     surface: String,
     reading: String,
+    whole: String,
+    cut_before: bool,
+    cut_after: bool,
     from: String,
+}
+
+fn width(s: &str) -> usize {
+    s.chars().map(|c| if is_kana(c) || is_kanji(c) { 2 } else { 1 }).sum()
+}
+
+/// A comma or the like: where a sentence can be cut.
+fn ends_clause(t: &ReaderToken) -> bool {
+    let s = t.surface.trim();
+    !s.is_empty() && !s.chars().any(char::is_alphanumeric) && s.chars().any(|c| "、，,；;：:—–".contains(c))
+}
+
+fn has_letters(t: &&ReaderToken) -> bool {
+    t.surface.chars().any(char::is_alphanumeric)
+}
+
+/// The part of a sentence to show around the word at `pos`, as a range of tokens. A short
+/// sentence: all of it. A long one: the word's clause (from comma to comma), with the clauses
+/// next to it as long as they fit in `MAX_WIDTH`. A clause that is too long by itself loses
+/// words at its ends.
+fn window(toks: &[&ReaderToken], pos: usize) -> (usize, usize) {
+    let len = toks.len();
+    let w: Vec<usize> = toks.iter().map(|t| width(&t.surface)).collect();
+    let total = |lo: usize, hi: usize| w[lo..hi].iter().sum::<usize>();
+    if total(0, len) <= MAX_WIDTH {
+        return (0, len);
+    }
+    // Where the clause with token `i` starts, and where the clause from `from` ends.
+    let clause_start = |i: usize| (0..i).rev().find(|&b| ends_clause(toks[b])).map_or(0, |b| b + 1);
+    let clause_end = |from: usize| (from..len).find(|&b| ends_clause(toks[b])).map_or(len, |b| b + 1);
+    let wider = |lo: usize, hi: usize, forward: bool| {
+        if forward {
+            (lo, if hi < len { clause_end(hi) } else { hi })
+        } else {
+            (if lo > 0 { clause_start(lo - 1) } else { lo }, hi)
+        }
+    };
+    let (mut lo, mut hi) = (clause_start(pos), clause_end(pos));
+    // Neighbouring clauses, the following one first, while they fit.
+    let (mut forward, mut stuck) = (true, 0);
+    while stuck < 2 {
+        let (l, h) = wider(lo, hi, forward);
+        if (l, h) != (lo, hi) && total(l, h) <= MAX_WIDTH {
+            (lo, hi) = (l, h);
+            stuck = 0;
+        } else {
+            stuck += 1;
+        }
+        forward = !forward;
+    }
+    // Too little around the word: the next clause anyway (cut to size below).
+    if total(lo, hi) - w[pos] < MIN_CONTEXT {
+        (lo, hi) = wider(lo, hi, hi < len);
+    }
+    while total(lo, hi) > MAX_WIDTH {
+        let (before, after) = (total(lo, pos), total(pos + 1, hi));
+        if lo < pos && (before >= after || hi == pos + 1) {
+            lo += 1;
+        } else if hi > pos + 1 {
+            hi -= 1;
+        } else {
+            break;
+        }
+    }
+    // Nothing but punctuation left out: keep it.
+    if !toks[hi..].iter().any(has_letters) {
+        hi = len;
+    }
+    if !toks[..lo].iter().any(has_letters) {
+        lo = 0;
+    }
+    while lo < pos && toks[lo].surface.trim().is_empty() {
+        lo += 1;
+    }
+    while hi > pos + 1 && toks[hi - 1].surface.trim().is_empty() {
+        hi -= 1;
+    }
+    (lo, hi)
 }
 
 /// The sentence with the word taken out, if the word is in it and something is left around it.
@@ -405,8 +497,10 @@ fn blank(
     let exact = toks.iter().position(|t| t.key.as_ref() == Some(key));
     let by_lemma = || toks.iter().position(|t| t.key.as_ref().is_some_and(|k| k.lemma == key.lemma));
     let Some(pos) = exact.or_else(by_lemma) else { return Ok(None) };
-    let before: String = toks[..pos].iter().map(|t| t.surface.as_str()).collect();
-    let after: String = toks[pos + 1..].iter().map(|t| t.surface.as_str()).collect();
+    // Of a long sentence, only the part around the word.
+    let (lo, hi) = window(&toks, pos);
+    let before: String = toks[lo..pos].iter().map(|t| t.surface.as_str()).collect();
+    let after: String = toks[pos + 1..hi].iter().map(|t| t.surface.as_str()).collect();
     let context = before.chars().chain(after.chars()).filter(|c| is_kana(*c) || is_kanji(*c)).count();
     if context < 2 {
         return Ok(None);
@@ -416,10 +510,13 @@ fn blank(
     Ok(Some(Found {
         before,
         after,
-        before_tokens: toks[..pos].iter().map(|t| (*t).clone()).collect(),
-        after_tokens: toks[pos + 1..].iter().map(|t| (*t).clone()).collect(),
+        before_tokens: toks[lo..pos].iter().map(|t| (*t).clone()).collect(),
+        after_tokens: toks[pos + 1..hi].iter().map(|t| (*t).clone()).collect(),
         surface: t.surface.clone(),
         reading: to_hiragana(&reading),
+        whole: toks.iter().map(|t| t.surface.as_str()).collect(),
+        cut_before: lo > 0,
+        cut_after: hi < toks.len(),
         from: from.to_string(),
     }))
 }
@@ -466,7 +563,7 @@ fn find_sentence(store: &Store, tok: &dyn Tokenizer, key: &WordKey, display: &st
     let mut tried = 0;
     'texts: for (id, title, body) in &texts {
         for s in sentences(body) {
-            if !(5..=90).contains(&s.chars().count()) || !stems.iter().any(|x| s.contains(x.as_str())) {
+            if !(5..=200).contains(&s.chars().count()) || !stems.iter().any(|x| s.contains(x.as_str())) {
                 continue;
             }
             tried += 1;
@@ -549,6 +646,10 @@ fn word_item(
         return Ok(None);
     }
     let has_card = store.knowledge(&c.key)?.is_some();
+    let (sentence, cut_before, cut_after) = match &found {
+        Some(f) => (f.whole.clone(), f.cut_before, f.cut_after),
+        None => (String::new(), false, false),
+    };
     let (before, after, before_tokens, after_tokens, answer, answer_reading, from) = match found {
         Some(f) => (f.before, f.after, f.before_tokens, f.after_tokens, f.surface, f.reading, f.from),
         None => (String::new(), String::new(), Vec::new(), Vec::new(), c.display.clone(), c.key.reading.clone(), String::new()),
@@ -573,6 +674,9 @@ fn word_item(
         after_tokens,
         answer,
         answer_reading,
+        sentence,
+        cut_before,
+        cut_after,
         from,
         accept,
         options,
@@ -604,6 +708,9 @@ fn kanji_item(lang: &str, k: &KanjiRow, pool: &[(String, String)], rng: &mut Rng
         after_tokens: Vec::new(),
         answer: k.kanji.clone(),
         answer_reading: String::new(),
+        sentence: String::new(),
+        cut_before: false,
+        cut_after: false,
         from: String::new(),
         accept: Vec::new(),
         options,
@@ -1181,6 +1288,7 @@ mod tests {
         assert_eq!(it.before_tokens.iter().map(|t| t.surface.as_str()).collect::<String>(), it.before);
         assert_eq!(it.after_tokens.iter().map(|t| t.surface.as_str()).collect::<String>(), it.after);
         assert_eq!((it.from.as_str(), it.has_card, it.answer_reading.as_str()), ("雨の日", false, "かさ"));
+        assert_eq!((it.sentence.as_str(), it.cut_before, it.cut_after), ("駅で傘を忘れた。", false, false));
         assert!(matches("kasa", &it.accept) && matches("傘", &it.accept) && !matches("あめ", &it.accept));
         // Listening needs the sentence too; matching needs a meaning, and there is no dictionary here.
         assert_eq!(round(&s, Some(&tok()), "ja", "listen", false, 10).unwrap().len(), 1);
@@ -1202,6 +1310,32 @@ mod tests {
         // Not due, but there for practising anyway.
         assert!(round(&s, Some(&tok()), "ja", "gap", false, 10).unwrap().is_empty());
         assert_eq!(round(&s, Some(&tok()), "ja", "gap", true, 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_long_sentence_is_cut_to_the_part_around_the_word() {
+        let s = Store::open_in_memory().unwrap();
+        let k = key("傘", "かさ");
+        // Three clauses: the word's own and the next one fit, the first doesn't.
+        let long = "昨日は友だちと山に登って、帰りに駅で傘を忘れたので、新しいのを買った。";
+        let f = blank(&s, &tok(), long, &k, None, "x").unwrap().unwrap();
+        assert_eq!((f.before.as_str(), f.after.as_str()), ("帰りに駅で", "を忘れたので、新しいのを買った。"));
+        assert_eq!((f.cut_before, f.cut_after, f.whole.as_str()), (true, false, long));
+        assert_eq!(f.before_tokens.iter().map(|t| t.surface.as_str()).collect::<String>(), f.before);
+
+        // No commas: words go at the ends, and the word keeps some on both sides.
+        let run = "昨日は友だちと山に登って帰りに駅で傘を忘れたので新しいのを買わなければならなかった。";
+        let f = blank(&s, &tok(), run, &k, None, "x").unwrap().unwrap();
+        assert!(f.cut_before || f.cut_after, "{} | {}", f.before, f.after);
+        assert!(width(&f.before) + width(&f.after) < MAX_WIDTH, "{} | {}", f.before, f.after);
+        assert!(width(&f.before) >= MIN_CONTEXT && width(&f.after) >= MIN_CONTEXT, "{} | {}", f.before, f.after);
+        assert!(run.contains(&format!("{}傘{}", f.before, f.after)));
+
+        // A short clause between long ones gets a neighbour, cut to size.
+        let short = "昨日は友だちと高い山に登ってとても疲れたけれど楽しかったし、傘は、帰りに近くの駅で忘れたので新しいのを買わなければならなかった。";
+        let f = blank(&s, &tok(), short, &k, None, "x").unwrap().unwrap();
+        assert!(width(&f.before) + width(&f.after) >= MIN_CONTEXT, "{} | {}", f.before, f.after);
+        assert!(width(&f.before) + width(&f.after) < MAX_WIDTH, "{} | {}", f.before, f.after);
     }
 
     /// 忘れる: fading in Anki (card 5, with its sentence), not in any text.

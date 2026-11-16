@@ -98,3 +98,22 @@ a click. Implementer's choices: a look-up of another word is not help with the g
 still counts as recalled and can go to Anki); it is recorded as a look-up event of the clicked
 word; the pop-up gets the full sentence (translation, simpler version, card) only after the
 answer, because the sentence holds it.
+
+## Addendum, 2026-11-16: shorter sentences, readings in Speed match
+
+Owner: the Fill the gap sentences "are a bit too long … it takes too long and is no fun
+anymore", and in Speed match "I'd like to have the ability to see the reading of the word too".
+
+- **Sentences are cut, not rewritten** (`review::window`): no AI request, and the words are
+  still the ones the learner read. A sentence wider than `MAX_WIDTH` (60; kana and kanji count
+  2, so about 30 Japanese characters) is cut to the word's clause, from comma to comma, plus
+  neighbouring clauses while they fit, the following one first. A clause that is too long by
+  itself loses words at its ends; a very short one gets a neighbour (`MIN_CONTEXT`). The item
+  says where it was cut (`cut_before`, `cut_after`: shown as …) and carries the whole sentence
+  (`sentence`), which is shown after the answer and used for the pop-up's translation and for
+  cards. Listen and fill reads the cut part. Text sentences up to 200 characters are now
+  candidates (was 90), since they are cut anyway.
+- **Readings in Speed match:** the reading stands above a kanji word (ruby) once the word is
+  picked; a "Readings" box shows all of them from the start (kept in the browser's local
+  storage, not in the database: a display preference of this computer). The answer still
+  counts as "right, with help", as all Speed match answers do.

@@ -27,6 +27,10 @@ A sentence with one word missing, and the word's meaning under it. The sentence 
 from a text where you met the word, or from your own Anki card. If Ankura has no sentence for a
 word, it shows only the meaning.
 
+A long sentence is cut to the part around the word, about 30 characters: the stretch between
+the commas next to it, plus the neighbouring stretch if it fits. **…** marks where the sentence
+goes on. The whole sentence is shown after you answer.
+
 Type the missing word and press **Enter**. All of these count:
 
 - the word as it stands in the sentence (忘れた) or its dictionary form (忘れる),
@@ -51,6 +55,9 @@ voice from Settings → Listening. Only words that have a sentence come up.
 
 Five words on the left, their meanings on the right, a clock running. Pick a word, then its
 meaning. A wrong pairing counts that word as missed.
+
+When you pick a word written in kanji, its reading appears above it. Tick **Readings** to see
+the readings of all words from the start (Ankura remembers the choice).
 
 ### Kanji round
 

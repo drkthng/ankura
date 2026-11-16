@@ -21,7 +21,9 @@ Read this first, then `CLAUDE.md`, `docs/ROADMAP.md` and the ADRs it points to.
   the learner read or from their Anki card; typed in kanji, kana or romaji), Listen and fill,
   Speed match, Kanji round; points, combo, daily goal, streak. A word typed without help is
   answered "Good" on its due Anki card (`areDue`, `answerCards`), which changes ADR 0007.
-  View `Review.svelte`, warm-up card on Today. **Not run end to end yet:** core tests ran in CI
+  View `Review.svelte`, warm-up card on Today. 2026-11-16 (owner in daily use, found the
+  sentences too long): long sentences are cut to the clause around the word (`review::window`),
+  Speed match shows readings (ADR 0022 addenda). **Not run end to end yet:** core tests ran in CI
   only, the e2e steps were added without running them (no Linux here), and nothing was tried
   against a real Anki.
 - **Italian and Spanish, first step** (ADR 0023, 2026-11-15, owner's request): a language

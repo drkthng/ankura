@@ -219,6 +219,24 @@
 
   // --- speed match ---
 
+  // Readings over the kanji words: of the picked word, or of all (remembered on this computer).
+  const READINGS_KEY = "ankura.review.readings";
+  let readings = $state(false);
+  try {
+    readings = localStorage.getItem(READINGS_KEY) === "on";
+  } catch {
+    // No storage: off.
+  }
+  function setReadings(on: boolean) {
+    readings = on;
+    try {
+      localStorage.setItem(READINGS_KEY, on ? "on" : "off");
+    } catch {
+      // Not remembered.
+    }
+  }
+  const hasReading = (i: RoundItem) => !!i.reading && /\p{Script=Han}/u.test(i.display);
+
   function deal(from: number) {
     boardStart = from;
     const n = Math.min(BOARD, items.length - from);
@@ -257,7 +275,7 @@
   async function makeCard(it: RoundItem) {
     error = "";
     try {
-      await api.cardCreate(it.key, it.display, hasSentence(it) ? it.before + it.answer + it.after : null, null);
+      await api.cardCreate(it.key, it.display, hasSentence(it) ? it.sentence : null, null);
       carded = [...carded, keyId(it.key)];
     } catch (e) {
       error = String(e);
@@ -432,12 +450,20 @@
 
     {#if mode === "match"}
       <section class="card match">
-        <p class="muted small">Pick a word, then its meaning.</p>
+        <p class="row small">
+          <span class="muted">Pick a word, then its meaning.</span>
+          <span class="grow"></span>
+          {#if board.some(hasReading)}
+            <label class="muted" title="Off: you see a word's reading when you pick it.">
+              <input type="checkbox" checked={readings} onchange={(e) => setReadings(e.currentTarget.checked)} /> Readings
+            </label>
+          {/if}
+        </p>
         <div class="board">
           <div class="col">
             {#each board as b, i}
               <button class="ja" class:picked={picked === i} class:gone={matched.includes(i)} disabled={matched.includes(i)} onclick={() => (picked = i)}>
-                {b.display}
+                {#if hasReading(b)}<ruby>{b.display}<rt class:shown={readings || picked === i}>{b.reading}</rt></ruby>{:else}{b.display}{/if}
               </button>
             {/each}
           </div>
@@ -464,7 +490,7 @@
           {/if}
           {#if hasSentence(item)}
             <p class="sentence">
-              <span class="gap-before">{@render words(item.before_tokens, item.before)}</span>{#if outcome}<span class="filled" class:missed={!outcome.right}>{item.answer}</span>{:else}<span class="gap" style:min-width="{Math.max(2, item.answer.length) * 1.4}em">{typed}</span>{/if}<span class="gap-after">{@render words(item.after_tokens, item.after)}</span>
+              {#if item.cut_before}<span class="cut">…</span>{/if}<span class="gap-before">{@render words(item.before_tokens, item.before)}</span>{#if outcome}<span class="filled" class:missed={!outcome.right}>{item.answer}</span>{:else}<span class="gap" style:min-width="{Math.max(2, item.answer.length) * 1.4}em">{typed}</span>{/if}<span class="gap-after">{@render words(item.after_tokens, item.after)}</span>{#if item.cut_after}<span class="cut">…</span>{/if}
             </p>
             {#if item.before_tokens.length || item.after_tokens.length}<p class="muted small">Click a word for its reading and meaning.</p>{/if}
           {:else}
@@ -516,6 +542,7 @@
               · back in {days(outcome.next_days)}
               {#if outcome.anki}<span class="pill anki">Anki: Good</span>{/if}
             </p>
+            {#if item.cut_before || item.cut_after}<p class="ja whole">{item.sentence}</p>{/if}
             {#if item.from}<p class="muted small">From: {item.from}</p>{/if}
           </div>
           <button class="primary" onclick={next}>{at + 1 < items.length ? "Next" : "See the result"}</button>
@@ -584,7 +611,7 @@
       onclose={closeLook}
       onmark={markLooked}
       ondontknow={dontKnowLooked}
-      sentence={outcome ? item.before + item.answer + item.after : ""}
+      sentence={outcome ? item.sentence : ""}
     />
   {/key}
 {/if}
@@ -720,6 +747,13 @@
   .tok.selected {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
+  .cut {
+    color: var(--muted);
+  }
+  .whole {
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
   .gap {
     display: inline-block;
     border-bottom: 2px solid var(--accent);
@@ -813,6 +847,20 @@
   }
   .col button.ja {
     font-size: 1.2rem;
+  }
+  /* The reading keeps its place when hidden, so the board doesn't jump. */
+  .col rt {
+    font-size: 0.7rem;
+    color: var(--muted);
+    visibility: hidden;
+  }
+  .col rt.shown {
+    visibility: visible;
+  }
+  .match label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
   }
   .col button.picked {
     border-color: var(--accent);

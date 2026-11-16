@@ -225,6 +225,10 @@ export interface RoundItem {
   /** The word as it stands in the sentence. */
   answer: string;
   answer_reading: string;
+  /** The whole sentence; `before` and `after` are only the part around the word when it is long. */
+  sentence: string;
+  cut_before: boolean;
+  cut_after: boolean;
   /** A text's title, or "your Anki card". */
   from: string;
   accept: string[];
